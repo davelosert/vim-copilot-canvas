@@ -565,6 +565,10 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
         await until(async () => assert.equal(await headingColor(), "rgb(5, 80, 174)"));
         await page.emulateMedia({ colorScheme: "dark" });
         await until(async () => assert.equal(await headingColor(), "rgb(121, 192, 255)"));
+        await page.evaluate(() => { document.documentElement.dataset.colorMode = "light"; });
+        await until(async () => assert.equal(await headingColor(), "rgb(5, 80, 174)"));
+        await page.evaluate(() => { delete document.documentElement.dataset.colorMode; });
+        await until(async () => assert.equal(await headingColor(), "rgb(121, 192, 255)"));
         await page.emulateMedia({ colorScheme: "light" });
         await page.setViewportSize({ width: 480, height: 720 });
         assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
@@ -792,7 +796,7 @@ test("browser: language-data highlighting and Markdown-only preview", { timeout:
     assert.deepEqual(errors, []);
 });
 
-test("browser: relative line numbers persist without resetting editor state", { timeout: 60000 }, async (t) => {
+test("browser: editor settings persist without resetting editor state", { timeout: 60000 }, async (t) => {
     const root = dirname(fileURLToPath(import.meta.url));
     const temporary = await realpath(await mkdtemp(join(tmpdir(), "vim-settings-browser-")));
     t.after(() => rm(temporary, { recursive: true, force: true }));
@@ -841,6 +845,8 @@ test("browser: relative line numbers persist without resetting editor state", { 
     await settingsButton.click();
     assert.equal(await page.getByRole("dialog", { name: "Settings", exact: true }).isVisible(), true);
     assert.equal(await page.getByRole("checkbox", { name: "Relative line numbers", exact: true }).isVisible(), true);
+    assert.equal(await page.getByLabel("Editor theme").inputValue(), "system");
+    assert.equal(await page.locator("#editor-theme option").count(), 15);
     await page.keyboard.press("Escape");
     await until(async () => assert.equal(await page.locator("#settings").isVisible(), false));
     await page.locator(".cm-line").first().click({ position: { x: 15, y: 5 } });
@@ -853,6 +859,15 @@ test("browser: relative line numbers persist without resetting editor state", { 
     await page.keyboard.type("Edited ");
     await until(async () => assert.match(await readFile(path, "utf8"), /Edited Three/));
     await toggle(true);
+    await page.locator("#settings-button").click();
+    await page.locator("#editor-theme").selectOption("dracula");
+    await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
+    assert.equal(await page.locator(".cm-editor").evaluate((node) => getComputedStyle(node).backgroundColor), "rgb(40, 42, 54)");
+    await page.locator("#close-settings").click();
+    await until(async () => assert.equal((await readFile(settingsFile, "utf8")).includes('"theme": "dracula"'), true));
+    await page.locator("#settings-button").click();
+    assert.equal(await page.locator("#editor-theme").inputValue(), "dracula");
+    await page.locator("#close-settings").click();
     assert.deepEqual(errors, []);
     assert.equal(await page.locator("#mode").innerText(), "INSERT");
     assert.equal(await page.locator("#cursor").innerText(), cursor.replace("Col 1", "Col 8"));

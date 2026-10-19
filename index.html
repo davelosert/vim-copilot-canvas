@@ -41,6 +41,10 @@
   <footer class="statusbar"><div><span id="mode" class="mode">NORMAL</span><span id="save-status">Loading</span><span id="agent-status" role="status" aria-live="polite"></span></div><div><span id="words">0 words</span><span id="cursor">Ln 1, Col 1</span><span id="filetype" class="filetype">Markdown</span></div></footer>
   <dialog id="settings" aria-labelledby="settings-title">
     <div class="dialog-heading"><h1 id="settings-title">Settings</h1><button id="close-settings" aria-label="Close settings">Close</button></div>
+    <label class="setting setting-select" for="editor-theme">Editor theme
+      <select id="editor-theme" aria-describedby="editor-theme-description"></select>
+    </label>
+    <p id="editor-theme-description">Choose a CodeMirror-compatible syntax and editor theme. GitHub (system) follows the host's colour mode.</p>
     <label class="setting"><input id="relative-line-numbers" type="checkbox" aria-describedby="relative-line-numbers-description"> Relative line numbers</label>
     <p id="relative-line-numbers-description">Show distances from the cursor line. The current line keeps its absolute number. Applies to all files and is saved across sessions.</p>
     <p id="settings-status" role="status" aria-live="polite"></p>

@@ -21,36 +21,37 @@ test("settings use the standard global canvas artifacts directory", () => {
     assert.equal(settingsPath(), join(process.env.COPILOT_HOME || join(homedir(), ".copilot"), "extensions", "vim-markdown", "artifacts", "settings.json"));
 });
 
-test("settings default to absolute numbers and persist across stores", async (t) => {
+test("settings default to absolute numbers and the system theme, and persist across stores", async (t) => {
     const { path, settings } = await fixture(t);
-    assert.deepEqual(await settings.read(), { relativeLineNumbers: false });
+    assert.deepEqual(await settings.read(), { relativeLineNumbers: false, theme: "system" });
     await settings.update({ relativeLineNumbers: true });
-    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { relativeLineNumbers: true });
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { relativeLineNumbers: true, theme: "system" });
+    await settings.update({ theme: "dracula" });
     const reopened = new SettingsStore(path);
-    assert.deepEqual(await reopened.read(), { relativeLineNumbers: true });
+    assert.deepEqual(await reopened.read(), { relativeLineNumbers: true, theme: "dracula" });
     await reopened.update({ relativeLineNumbers: false });
-    assert.deepEqual(await settings.read(), { relativeLineNumbers: false });
+    assert.deepEqual(await settings.read(), { relativeLineNumbers: false, theme: "dracula" });
     assert.deepEqual(await readdir(dirname(path)), ["settings.json"]);
 });
 
 test("settings reject invalid updates without changing persisted preferences", async (t) => {
     const { settings } = await fixture(t);
     await settings.update({ relativeLineNumbers: true });
-    for (const input of [null, [], {}, true, { relativeLineNumbers: "true" }, { relativeLineNumbers: false, other: true }]) {
+    for (const input of [null, [], {}, true, { relativeLineNumbers: "true" }, { theme: "unknown" }, { relativeLineNumbers: false, other: true }]) {
         await assert.rejects(settings.update(input), { code: "invalid_settings", status: 400 });
     }
-    assert.deepEqual(await settings.read(), { relativeLineNumbers: true });
+    assert.deepEqual(await settings.read(), { relativeLineNumbers: true, theme: "system" });
     await Promise.all([
         settings.update({ relativeLineNumbers: false }),
         settings.update({ relativeLineNumbers: true }),
     ]);
-    assert.deepEqual(await settings.read(), { relativeLineNumbers: true });
+    assert.deepEqual(await settings.read(), { relativeLineNumbers: true, theme: "system" });
 });
 
 test("malformed settings and filesystem failures are surfaced, not overwritten", async (t) => {
     const { path, settings } = await fixture(t);
     await settings.update({ relativeLineNumbers: true });
-    for (const source of ["{", "null", "[]", '{"relativeLineNumbers":"yes"}']) {
+    for (const source of ["{", "null", "[]", '{"relativeLineNumbers":"yes"}', '{"theme":"unknown"}']) {
         await writeFile(path, source);
         await assert.rejects(settings.read(), { code: "invalid_settings", status: 500 });
         await assert.rejects(settings.update({ relativeLineNumbers: false }), { code: "invalid_settings" });
@@ -58,7 +59,7 @@ test("malformed settings and filesystem failures are surfaced, not overwritten",
     }
     await writeFile(path, '{"futurePreference": 42}');
     await settings.update({ relativeLineNumbers: true });
-    assert.deepEqual(await settings.read(), { futurePreference: 42, relativeLineNumbers: true });
+    assert.deepEqual(await settings.read(), { futurePreference: 42, relativeLineNumbers: true, theme: "system" });
     const unwritable = new SettingsStore(join(path, "settings.json"));
     await assert.rejects(unwritable.update({ relativeLineNumbers: true }), { code: "ENOTDIR" });
 });
@@ -76,11 +77,14 @@ test("settings HTTP endpoints validate authentication, origin and input", async 
     const headers = { "X-Editor-Token": new URL(entry.url).hash.slice(1), "Content-Type": "application/json" };
     assert.equal((await fetch(url)).status, 403);
     assert.equal((await fetch(url, { headers: { ...headers, Origin: "https://example.com" } })).status, 403);
-    assert.deepEqual(await (await fetch(url, { headers })).json(), { relativeLineNumbers: false });
+    assert.deepEqual(await (await fetch(url, { headers })).json(), { relativeLineNumbers: false, theme: "system" });
     assert.equal((await fetch(url, { method: "POST", headers, body: '{"relativeLineNumbers":1}' })).status, 400);
     assert.equal((await fetch(url, { method: "POST", headers: { ...headers, "Content-Type": "text/plain" }, body: "{}" })).status, 415);
     assert.deepEqual(await (await fetch(url, {
         method: "POST", headers, body: '{"relativeLineNumbers":true}',
-    })).json(), { relativeLineNumbers: true });
-    assert.deepEqual(await settings.read(), { relativeLineNumbers: true });
+    })).json(), { relativeLineNumbers: true, theme: "system" });
+    assert.deepEqual(await (await fetch(url, {
+        method: "POST", headers, body: '{"theme":"nord"}',
+    })).json(), { relativeLineNumbers: true, theme: "nord" });
+    assert.deepEqual(await settings.read(), { relativeLineNumbers: true, theme: "nord" });
 });

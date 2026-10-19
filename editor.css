@@ -73,12 +73,7 @@ button.mini:hover { color: var(--editor-text); }
 .cm-scroller { overflow: auto; font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); line-height: 1.75; }
 .cm-content { padding: 20px 0 80px; }
 .cm-line { padding-left: 14px; padding-right: 20px; }
-.cm-gutters { background: var(--editor-surface) !important; color: var(--editor-muted) !important; border-right: none !important; padding-left: 6px; }
-.cm-activeLineGutter, .cm-activeLine { background: var(--editor-soft) !important; }
-.cm-cursor { border-left-color: var(--editor-text) !important; }
-.cm-fat-cursor { background: var(--editor-accent) !important; color: #fff !important; }
-.cm-selectionBackground, .cm-focused .cm-selectionBackground { background: color-mix(in srgb, var(--editor-accent) 22%, transparent) !important; }
-.cm-panels { background: var(--editor-soft) !important; color: var(--editor-text) !important; }
+.cm-gutters { padding-left: 6px; }
 .cm-vim-panel input { color: var(--editor-text); background: transparent; font-family: var(--font-mono, monospace); }
 .agent-prompt { margin: 8px 14px; padding: 10px 12px; border: 1px solid var(--editor-accent); border-radius: 7px; background: var(--editor-soft); font: 12px/1.5 var(--font-sans, sans-serif); white-space: normal; }
 .agent-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; overflow-wrap: anywhere; font-weight: 600; }
@@ -167,6 +162,8 @@ dialog h1 { font-size: 24px; margin: 6px 0; letter-spacing: -.6px; }
 dialog p, .help-note { font-size: 12px; color: var(--editor-muted); }
 .setting { display: flex; align-items: center; gap: 8px; margin-top: 24px; cursor: pointer; }
 .setting input { accent-color: var(--editor-accent); }
+.setting-select { align-items: center; justify-content: space-between; gap: 16px; }
+.setting-select select { min-width: 200px; max-width: 100%; padding: 7px 10px; border: 1px solid var(--editor-border); border-radius: 6px; background: var(--editor-surface); color: var(--editor-text); font: inherit; }
 .shortcut-grid { display: grid; grid-template-columns: 145px 1fr; gap: 12px 18px; margin: 24px 0; align-items: center; }
 .shortcut-grid kbd { background: var(--editor-soft); border: 1px solid var(--editor-border); border-radius: 4px; padding: 5px 8px; width: fit-content; }
 .shortcut-grid span { font-size: 12px; }

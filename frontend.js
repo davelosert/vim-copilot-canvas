@@ -13,6 +13,7 @@ import filterXSS from "xss";
 import { createExplorer } from "./explorer.js";
 import { createAgent } from "./agent.js";
 import { editorTheme as githubTheme } from "./theme.js";
+import { themeOptions } from "./themes.js";
 
 const $ = (id) => document.getElementById(id);
 const heading = ["id", "class"];
@@ -65,7 +66,7 @@ const lineBreaks = new Compartment();
 const editable = new Compartment();
 const language = new Compartment();
 const numbering = new Compartment();
-let settings = { relativeLineNumbers: false };
+let settings = { relativeLineNumbers: false, theme: "system" };
 let languageRequest = 0;
 let markdownLayout = "split";
 let editor;
@@ -267,13 +268,7 @@ function replaceDocument(snapshot) {
     refreshStatus();
 }
 
-function darkMode() {
-    const mode = document.documentElement.dataset.colorMode ?? document.body.dataset.colorMode;
-    if (mode === "dark" || mode === "light") return mode === "dark";
-    return matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
-const editorTheme = () => githubTheme(darkMode());
+const editorTheme = (name = settings.theme) => githubTheme(name);
 
 const documentUrl = () => `document?path=${encodeURIComponent(current.path)}`;
 
@@ -289,7 +284,9 @@ function lineNumberStyle() {
 function applySettings(value) {
     settings = value;
     $("relative-line-numbers").checked = value.relativeLineNumbers;
+    $("editor-theme").value = value.theme;
     editor.dispatch({ effects: numbering.reconfigure(lineNumberStyle()) });
+    editor.dispatch({ effects: theme.reconfigure(editorTheme(settings.theme)) });
 }
 
 function settingsError(error) {
@@ -298,6 +295,7 @@ function settingsError(error) {
 
 function setupSettings() {
     const checkbox = $("relative-line-numbers");
+    const themeSelect = $("editor-theme");
     $("settings-button").addEventListener("click", async () => {
         $("settings").showModal();
         checkbox.disabled = true;
@@ -312,20 +310,29 @@ function setupSettings() {
         }
     });
     checkbox.addEventListener("change", async () => {
-        const relativeLineNumbers = checkbox.checked;
-        checkbox.disabled = true;
-        $("settings-status").textContent = "Saving settings...";
-        try {
-            applySettings(await api("settings", { relativeLineNumbers }));
-            $("settings-status").textContent = "Settings saved.";
-        } catch (error) {
-            checkbox.checked = settings.relativeLineNumbers;
-            settingsError(error);
-        } finally {
-            checkbox.disabled = false;
-        }
+        await saveSetting({ relativeLineNumbers: checkbox.checked });
+    });
+    themeSelect.addEventListener("change", async () => {
+        await saveSetting({ theme: themeSelect.value });
     });
     $("close-settings").addEventListener("click", () => $("settings").close());
+}
+
+async function saveSetting(patch) {
+    $("relative-line-numbers").disabled = true;
+    $("editor-theme").disabled = true;
+    $("settings-status").textContent = "Saving settings...";
+    try {
+        applySettings(await api("settings", patch));
+        $("settings-status").textContent = "Settings saved.";
+    } catch (error) {
+        $("relative-line-numbers").checked = settings.relativeLineNumbers;
+        $("editor-theme").value = settings.theme;
+        settingsError(error);
+    } finally {
+        $("relative-line-numbers").disabled = false;
+        $("editor-theme").disabled = false;
+    }
 }
 
 function createState(content) {
@@ -344,7 +351,7 @@ function createState(content) {
                 language.of(isMarkdown() ? markdown({ codeLanguages: languages }) : []),
                 EditorView.lineWrapping, agent.extensions,
                 lineBreaks.of(EditorState.lineSeparator.of(content.includes("\r\n") ? "\r\n" : "\n")),
-                theme.of(editorTheme()), editable.of(EditorView.editable.of(true)),
+                theme.of(editorTheme(settings.theme)), editable.of(EditorView.editable.of(true)),
                 EditorView.contentAttributes.of({ "aria-label": "Text editor", spellcheck: "false" }),
                 keymap.of([{ key: "Mod-s", preventDefault: true, run: () => { save(); return true; } }]),
                 EditorView.updateListener.of((update) => {
@@ -578,8 +585,10 @@ function setupSidebar() {
 
 async function boot() {
     const [initial, preferences] = await Promise.all([api("document"), api("settings")]);
+    $("editor-theme").replaceChildren(...themeOptions.map(({ value, label }) => new Option(label, value)));
     settings = preferences;
     $("relative-line-numbers").checked = settings.relativeLineNumbers;
+    $("editor-theme").value = settings.theme;
     current = initial;
     editor = new EditorView({ state: createState(initial.content), parent: $("editor") });
     attachVim();
@@ -663,7 +672,7 @@ async function boot() {
         }
     }).catch(showError));
 
-    const updateTheme = () => editor.dispatch({ effects: theme.reconfigure(editorTheme()) });
+    const updateTheme = () => editor.dispatch({ effects: theme.reconfigure(editorTheme(settings.theme)) });
     const observer = new MutationObserver(updateTheme);
     for (const node of [document.documentElement, document.body]) {
         observer.observe(node, { attributes: true, attributeFilter: ["data-color-mode", "data-dark-theme", "data-light-theme"] });

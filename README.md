@@ -19,13 +19,16 @@ files use plain text. Markdown (`.md`, `.markdown`, `.mdown`) keeps its Edit/Spl
 controls, live rendering, and word count; other files use the full editor pane
 without preview controls. Returning to Markdown restores the selected layout.
 Source/preview layout adapts to narrow panels.
-Syntax colours use GitHub's light and dark palettes (`theme.js`) and follow the
-host's colour mode (`data-color-mode`, falling back to `prefers-color-scheme`).
+The editor includes 15 built-in CodeMirror-compatible presets: GitHub (system),
+GitHub Light/Dark, One Dark, Dracula, Nord, Solarized Light/Dark, Monokai,
+Material Dark, Tokyo Night, Gruvbox Light/Dark, Eclipse, and Sublime. The
+GitHub (system) theme follows the host colour mode (`data-color-mode`, falling
+back to `prefers-color-scheme`).
 
 ## Settings
 
-Click the **Settings cog** at the top right of the canvas to open its settings
-dialog and enable **Relative line numbers**. Other lines
+Click the **Settings cog** at the top right of the canvas to choose an **Editor
+theme** and enable **Relative line numbers**. Other lines
 show their distance from the cursor line, which keeps its absolute number.
 The default is absolute line numbers. Changes apply immediately without resetting
 the document, cursor, undo history, or Vim mode, and apply to all text file types.
