@@ -112,9 +112,18 @@ button.mini:hover { color: var(--editor-text); }
 .agent-input .cm-editor.cm-focused { outline: none; }
 .agent-input .cm-scroller { font: 13px/1.5 var(--font-sans, sans-serif); }
 .agent-input .cm-line { padding: 0 8px; }
-.agent-input .cm-content { min-height: 3em; padding: 6px 0; }
+.agent-input .cm-content { min-height: calc(4.5em + 12px); padding: 6px 0; }
+/* The outer editor's Vim rules are descendant selectors and leak into the nested prompt editor; undo them here. */
+.agent-input .cm-scroller:not(.cm-vimMode) .cm-cursorLayer:not(.cm-vimCursorLayer) { display: block; }
+.agent-input .cm-editor.cm-focused .cm-fat-cursor { outline: none; background: var(--editor-cursor-color, var(--editor-text)); color: var(--editor-cursor-text, var(--editor-surface)) !important; }
 .agent-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.agent-actions span { order: 1; flex-basis: 100%; color: var(--editor-muted); font-size: 10px; }
+.agent-actions button { display: inline-flex; align-items: center; gap: 8px; }
+.agent-actions button.primary { background: var(--editor-accent); border-color: var(--editor-accent); color: var(--color-white, #fff); }
+.agent-actions button.primary:hover { background: color-mix(in srgb, var(--editor-accent) 88%, #000); }
+.agent-actions .agent-cancel { margin-left: auto; }
+.agent-actions kbd, .agent-hint kbd { display: inline-block; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); border-radius: 4px; padding: 0 5px; font-size: 11px; line-height: 16px; opacity: .85; }
+.agent-actions button.primary kbd { border-color: color-mix(in srgb, currentColor 45%, transparent); }
+.agent-hint { margin-top: 8px; color: var(--editor-muted); font-size: 11px; }
 .agent-status:not(:empty) { margin-top: 8px; overflow-wrap: anywhere; }
 .cm-line.cm-agent-pending { background: color-mix(in srgb, var(--editor-warning) 22%, transparent) !important; }
 .review { border-top: 1px solid var(--editor-border); background: var(--editor-soft); font-size: 12px; }
