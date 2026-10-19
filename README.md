@@ -101,6 +101,15 @@ frontend, and runs `npm test` (all Vitest unit, integration, browser-component,
 and production-page projects).
 Use the same browser installation command when reproducing CI on Linux.
 
+Windows coverage is opt-in to limit runner costs. After the workflow is merged
+into `main`, select **Actions > Windows tests > Run workflow** and choose `main`.
+It runs the same build and all Vitest projects on `windows-latest` with Node.js 24
+and only Chromium's headless shell (`npx playwright install --only-shell chromium`).
+Both browser-component and production-page tests run headlessly.
+It never runs on pushes or pull requests; manual dispatches for
+other branches or tags skip the job without allocating a Windows runner.
+This optional check is not required for merging.
+
 The active `main` ruleset requires pull requests and a passing **Tests** check
 from GitHub Actions, with the PR branch up to date before merging. No approving
 review is required. Direct pushes, force pushes, and branch deletion are blocked.
