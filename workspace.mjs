@@ -22,6 +22,27 @@ async function repositoryRoot(directory) {
     }
 }
 
+/**
+ * Resolve the explorer root and first document for a canvas open request.
+ * Explicit `filePath`/`rootPath` win; otherwise the session's working directory
+ * is used. Returns null when nothing usable is available (caller falls back to
+ * the bundled welcome document).
+ */
+export async function resolveInitialTarget({ filePath, rootPath, workingDirectory, ignore } = {}) {
+    if (filePath || rootPath) {
+        const workspace = await Workspace.create({ rootPath, filePath, ignore });
+        return { workspace, path: await workspace.resolve(filePath ?? await workspace.firstDocument()) };
+    }
+    if (!workingDirectory || !isAbsolute(workingDirectory)) return null;
+    try {
+        const workspace = await Workspace.create({ rootPath: workingDirectory, ignore });
+        return { workspace, path: await workspace.firstDocument() };
+    } catch (error) {
+        if (["no_documents", "not_a_directory"].includes(error.code) || ["ENOENT", "EACCES", "ENOTDIR"].includes(error.code)) return null;
+        throw error;
+    }
+}
+
 export class Workspace {
     constructor(root, { ignore = [] } = {}) {
         this.root = root;
