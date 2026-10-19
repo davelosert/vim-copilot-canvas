@@ -558,6 +558,12 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
         await page.locator("#help-button").click();
         assert.equal(await page.locator("#help").isVisible(), true);
         await page.locator("#close-help").click();
+        const headingColor = () => page.locator(".cm-line span").filter({ hasText: "Safe" }).first().evaluate((node) => getComputedStyle(node).color);
+        await page.emulateMedia({ colorScheme: "light" });
+        await until(async () => assert.equal(await headingColor(), "rgb(5, 80, 174)"));
+        await page.emulateMedia({ colorScheme: "dark" });
+        await until(async () => assert.equal(await headingColor(), "rgb(121, 192, 255)"));
+        await page.emulateMedia({ colorScheme: "light" });
         await page.setViewportSize({ width: 480, height: 720 });
         assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
         assert.equal(await page.locator(".preview-pane").isVisible(), true);
