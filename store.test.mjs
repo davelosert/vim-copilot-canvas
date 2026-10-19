@@ -6,7 +6,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DocumentStore } from "./store.mjs";
 import { startServer } from "./server.mjs";
-import { Workspace } from "./workspace.mjs";
+import { Workspace, resolveInitialTarget } from "./workspace.mjs";
 import { realpath, symlink, mkdir } from "node:fs/promises";
 
 async function fixture(t, content = "# Original\n") {
@@ -172,4 +172,27 @@ test("workspace and tree/open endpoints stay inside the root", async (t) => {
     assert.equal((await call("draft", { path: join(base, "outside.md"), revision: 0, content: "x" })).status, 403);
     const readme = await (await call(`document?path=${encodeURIComponent(join(rootDir, "README.md"))}`)).json();
     assert.equal(readme.content, "# Root\n");
+});
+
+test("initial target defaults to the session working directory", async (t) => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), "vim-markdown-cwd-")));
+    t.after(() => rm(base, { recursive: true, force: true }));
+    const project = join(base, "project");
+    await mkdir(join(project, "docs"), { recursive: true });
+    await writeFile(join(project, "docs", "guide.md"), "# Guide\n");
+    const fromCwd = await resolveInitialTarget({ workingDirectory: project });
+    assert.equal(fromCwd.workspace.root, project);
+    assert.equal(fromCwd.path, join(project, "docs", "guide.md"));
+    await writeFile(join(project, "README.md"), "# Readme\n");
+    assert.equal((await resolveInitialTarget({ workingDirectory: project })).path, join(project, "README.md"));
+
+    const explicit = await resolveInitialTarget({ rootPath: join(project, "docs"), workingDirectory: project });
+    assert.equal(explicit.workspace.root, join(project, "docs"));
+
+    const empty = join(base, "empty");
+    await mkdir(empty);
+    assert.equal(await resolveInitialTarget({ workingDirectory: empty }), null);
+    assert.equal(await resolveInitialTarget({ workingDirectory: join(base, "missing") }), null);
+    assert.equal(await resolveInitialTarget({ workingDirectory: "relative" }), null);
+    assert.equal(await resolveInitialTarget({}), null);
 });

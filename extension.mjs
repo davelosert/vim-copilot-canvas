@@ -3,7 +3,7 @@ import { basename, dirname, join } from "node:path";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import { DocumentStore } from "./store.mjs";
 import { startServer } from "./server.mjs";
-import { Workspace } from "./workspace.mjs";
+import { Workspace, resolveInitialTarget } from "./workspace.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const store = new DocumentStore(join(root, "artifacts"));
@@ -24,7 +24,7 @@ await joinSession({
             type: "object",
             properties: {
                 filePath: { type: "string", minLength: 1, description: "Absolute path of the file to open first." },
-                rootPath: { type: "string", minLength: 1, description: "Absolute explorer root directory. Defaults to the file's Git repository or folder." },
+                rootPath: { type: "string", minLength: 1, description: "Absolute explorer root directory. Defaults to the file's Git repository or folder, or to the session's working directory when no filePath is given." },
             },
             additionalProperties: false,
         },
@@ -69,7 +69,8 @@ await joinSession({
         ],
         open: async (ctx) => {
             const { filePath, rootPath } = ctx.input ?? {};
-            const key = JSON.stringify([filePath ?? null, rootPath ?? null]);
+            const workingDirectory = filePath || rootPath ? null : ctx.session?.workingDirectory ?? null;
+            const key = JSON.stringify([filePath ?? null, rootPath ?? null, workingDirectory]);
             let value = servers.get(ctx.instanceId);
             if (value && value.key !== key) {
                 servers.delete(ctx.instanceId);
@@ -79,12 +80,13 @@ await joinSession({
             if (!value) {
                 let workspace;
                 let document;
-                if (!filePath && !rootPath) {
+                const target = await resolveInitialTarget({ filePath, rootPath, workingDirectory });
+                if (target) {
+                    workspace = target.workspace;
+                    document = await store.open(target.path);
+                } else {
                     document = await store.open();
                     workspace = new Workspace(dirname(document.path), { ignore: ["drafts"] });
-                } else {
-                    workspace = await Workspace.create({ rootPath, filePath });
-                    document = await store.open(await workspace.resolve(filePath ?? await workspace.firstDocument()));
                 }
                 value = Object.assign(await startServer({ store, workspace, document, root }), { key });
                 servers.set(ctx.instanceId, value);

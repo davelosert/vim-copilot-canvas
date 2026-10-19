@@ -4,8 +4,11 @@ A user-scoped Copilot canvas using CodeMirror 6, `@replit/codemirror-vim`,
 Markdown language support, and a sanitized live preview. This is not Neovim:
 Lua configuration and Neovim plugins are not loaded.
 
-Open the `vim-markdown` canvas without input for the editable welcome document,
-or pass `{ "filePath": "/abs/doc.md" }` and/or `{ "rootPath": "/abs/folder" }`.
+Open the `vim-markdown` canvas without input to browse the session's working
+directory (its README/index or first Markdown file opens first); if the session
+has no working directory or it contains no Markdown files, the editable welcome
+document opens instead. Alternatively pass `{ "filePath": "/abs/doc.md" }`
+and/or `{ "rootPath": "/abs/folder" }`.
 Without `rootPath`, the explorer root is the file's nearest Git repository
 (stopping at your home directory) or its folder. With only `rootPath`, a README
 or index file is opened first. Existing `.md`, `.markdown`, `.mdown`, and `.txt`
