@@ -141,13 +141,72 @@ the prompt is read-only while delivery is pending.
 
 ```sh
 npm ci
-npm run build
+npx playwright install chromium
 npm test
 ```
 
-Browser tests use Playwright Chromium (`npx playwright install chromium` if
-it is not installed). Build assets are shipped alongside `extension.mjs`;
-reload extensions after changing provider code.
+Development requires a Vitest-supported Node.js release:
+`^22.12.0 || ^24.0.0 || >=26.0.0`.
+
+`npm test` builds the production bundle before running all Vitest projects.
+Use `npm run build` to rebuild the shipped assets without running tests.
+Playwright supplies the Chromium driver for Vitest Browser Mode and the
+production-page tests; there is no separate Playwright test runner.
+
+| Command | Scope |
+| --- | --- |
+| `npm run test:unit` | Pure logic, document-controller interleavings, and EditorState selections |
+| `npm run test:integration` | Real filesystem stores, workspace rules, and HTTP contracts |
+| `npm run test:browser` | Components and the assembled app in Vitest Browser Mode |
+| `npm run test:e2e` | Fresh production build and real HTTP-page tests |
+| `npm run test:watch` | Interactive Vitest development mode |
+
+### Source layout and ownership
+
+```text
+extension.mjs          SDK discovery entry and provider wiring
+src/frontend/          Browser application and feature factories
+src/backend/           HTTP transport, routes, delivery, and persistent stores
+src/shared/            Browser/Node-safe theme catalog
+public/                HTML shell and stylesheet
+resources/             Bundled welcome document
+assets/                Generated editor bundle and lazy language chunks
+tests/                 unit, integration, browser, e2e, and fixture helpers
+```
+
+The frontend uses plain ES modules and vanilla DOM. `app.js` composes the
+features; `main.js` is the production entry. The document controller owns the
+current snapshot, edit generations, serialized saves, file switching, reloads,
+polling, and conflicts. It has no DOM or CodeMirror dependency. The editor
+adapter owns CodeMirror state and configuration; preview, settings, reviews,
+explorer, and inline agent prompts own their own UI and communicate through
+explicit callbacks. Application disposal removes listeners and timers and
+destroys editor views, so components can be mounted independently in tests.
+Reloading temporarily makes the editor read-only to protect the replacement
+from concurrent input. Errors in unrelated UI features no longer mark the
+document as unsaved or conflicted.
+
+Backend transport handles loopback serving and request protection before
+dispatching to application routes. Persistent stores retain their individual
+locking and write semantics. Shared modules must not import browser or Node-only
+APIs. Keep the required `extension.mjs` at the installation root: source
+relocation does not change draft/review artifact locations or global settings.
+
+Use unit tests for deterministic save/conflict races, integration tests for
+filesystem and HTTP behavior, and Browser Mode for real keyboard, focus, DOM,
+and component interactions. Production-page tests exercise built assets,
+navigation, reloads, and cross-layer behavior that a mounted component cannot
+prove. Each independently mounted app must be disposed after its test.
+
+Build assets are shipped alongside `extension.mjs` and must be regenerated
+after frontend changes; do not edit generated files manually. Reload extensions
+after changing provider code.
+
+The Copilot SDK is provided by the host's extension resolver, not installed as
+an npm dependency. For host-level checks, use an isolated extension installation
+and exercise open, `get_document`, `list_files`, `open_file`, `save`, and close.
+Do not reload or replace a user's installed extension merely to run repository
+tests.
 
 ### Continuous integration and merging
 
@@ -155,7 +214,8 @@ GitHub Actions runs the **Tests** job on Ubuntu with Node.js 24 for every push t
 `main` and every pull request, regardless of target branch or changed files.
 It installs locked dependencies with `npm ci`, installs Chromium and its system
 dependencies with `npx playwright install --with-deps chromium`, builds the
-frontend, and runs `npm test` (store, settings, and browser tests).
+frontend, and runs `npm test` (all Vitest unit, integration, browser-component,
+and production-page projects).
 Use the same browser installation command when reproducing CI on Linux.
 
 The active `main` ruleset requires pull requests and a passing **Tests** check

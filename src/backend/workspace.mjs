@@ -1,7 +1,8 @@
 import { readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { homedir } from "node:os";
-import { diskText, EditorError } from "./store.mjs";
+import { EditorError } from "./errors.mjs";
+import { diskText } from "./files.mjs";
 
 const MAX_ENTRIES = 2000;
 // The explorer lists everything, but the initial document is never picked from these.

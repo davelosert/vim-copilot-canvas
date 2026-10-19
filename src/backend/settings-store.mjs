@@ -2,8 +2,8 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { EditorError } from "./store.mjs";
-import { editorThemes } from "./themes.js";
+import { EditorError } from "./errors.mjs";
+import { editorThemes } from "../shared/themes.js";
 
 export function settingsPath(home = process.env.COPILOT_HOME || join(homedir(), ".copilot")) {
     return join(home, "extensions", "vim-markdown", "artifacts", "settings.json");

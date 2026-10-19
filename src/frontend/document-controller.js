@@ -1,0 +1,172 @@
+const conflict = () => Object.assign(new Error("The file or draft changed while you were typing. Your local text is preserved; copy it before reloading."), { code: "draft_conflict" });
+
+/** Sole owner of document snapshots, local generations, and serialized writes.
+ * readText reads the live buffer; onDocument must apply text synchronously.
+ */
+export function createDocumentController({ api, readText, onState = () => {}, onDocument = () => {}, onPoll = async () => {} }) {
+    let current = null;
+    let localVersion = 0;
+    let persistedVersion = 0;
+    let blocked = false;
+    let saveFailed = false;
+    let disposed = false;
+    let saving = false;
+    let status = "";
+    let error = null;
+    let operations = Promise.resolve();
+    let autosave = null;
+    const pending = () => localVersion !== persistedVersion;
+    const getState = () => ({
+        current: current && { ...current }, localVersion, persistedVersion,
+        localPending: pending(), blocked, saveFailed, saving, status, error,
+        dirty: pending() || Boolean(current?.dirty),
+    });
+    const emit = () => { if (!disposed) onState(getState()); };
+    const fail = (reason) => {
+        if (disposed) return;
+        error = reason;
+        if (pending() || current?.dirty) saveFailed = true;
+        if (reason.code === "draft_conflict") blocked = true;
+        if (reason.code === "disk_conflict" && current) current = { ...current, conflict: true };
+        status = blocked ? "Draft conflict" : "Not synced";
+        emit();
+    };
+    const enqueue = (operation) => {
+        const result = operations.catch(() => {}).then(async () => {
+            if (disposed) return;
+            try { return await operation(); }
+            catch (reason) { fail(reason); throw reason; }
+        });
+        operations = result;
+        return result;
+    };
+    function apply(snapshot, kind) {
+        if (disposed) return;
+        current = snapshot;
+        localVersion = persistedVersion = 0;
+        blocked = saveFailed = false;
+        error = null;
+        status = snapshot.dirty ? "Draft recovered" : "All changes saved";
+        onDocument({ ...snapshot }, { kind });
+        emit();
+    }
+    async function flushDraft({ drain = true } = {}) {
+        if (blocked) throw conflict();
+        while (pending() && !disposed) {
+            const version = localVersion;
+            const content = readText();
+            status = "Recovering draft...";
+            emit();
+            const snapshot = await api.draft({ path: current.path, revision: current.revision, content });
+            if (disposed) return;
+            current = snapshot;
+            persistedVersion = version;
+            status = pending() ? "Draft pending" : "Draft recovered";
+            emit();
+            if (!drain) break;
+        }
+    }
+    async function flushChanges() {
+        saving = true;
+        emit();
+        try {
+            do {
+                await flushDraft({ drain: false });
+                if (disposed) return;
+                if (current.dirty) {
+                    status = "Saving...";
+                    emit();
+                    try {
+                        const snapshot = await api.save({ path: current.path, revision: current.revision });
+                        if (disposed) return;
+                        current = snapshot;
+                    } catch (reason) {
+                        // A disk conflict must not prevent recovery of edits typed during save.
+                        await flushDraft();
+                        throw reason;
+                    }
+                }
+            } while (pending() && !disposed);
+            saveFailed = false;
+            error = null;
+            status = "All changes saved";
+        } finally {
+            saving = false;
+            emit();
+        }
+    }
+    function scheduleSave() {
+        if (autosave || disposed) return autosave;
+        autosave = enqueue(flushChanges);
+        autosave.catch(() => {}).finally(() => {
+            autosave = null;
+            // An edit can arrive after the drain completes but before its microtasks settle.
+            if (!disposed && pending() && !saveFailed && !blocked) scheduleSave();
+        });
+        return autosave;
+    }
+    async function openInternal(path, { discard = false, fromServer = false } = {}) {
+        if (path === current.path) return true;
+        if (blocked) {
+            if (fromServer || !discard) return false;
+        } else {
+            await flushDraft();
+            if (!current.conflict) await flushChanges();
+        }
+        // Do not clear conflict ownership until opening actually succeeds.
+        const snapshot = await api.open({ path });
+        apply(snapshot, "switch");
+        if (snapshot.dirty && !snapshot.conflict) scheduleSave();
+        return !disposed;
+    }
+    return {
+        getState,
+        initialize(snapshot) {
+            if (current || disposed) return;
+            apply(snapshot, "switch");
+            if (snapshot.dirty && !snapshot.conflict) scheduleSave();
+        },
+        edited() {
+            if (disposed) return;
+            localVersion++;
+            status = "Draft pending";
+            emit();
+            scheduleSave();
+        },
+        save: () => enqueue(flushChanges),
+        flushDraft: () => enqueue(() => flushDraft()),
+        open: (path, options) => enqueue(() => openInternal(path, options)),
+        reload: () => enqueue(async () => {
+            const version = localVersion;
+            const latest = await api.document(current.path);
+            if (disposed) return;
+            const snapshot = await api.reload({ path: current.path, revision: latest.revision, diskHash: latest.diskHash });
+            if (disposed) return;
+            // UI disables editing, but non-DOM consumers still get a safe guard.
+            if (version !== localVersion) throw conflict();
+            apply(snapshot, "replace");
+            status = "Disk version loaded";
+            emit();
+        }),
+        poll: () => enqueue(async () => {
+            if (blocked) return;
+            if (pending()) await flushChanges();
+            const snapshot = await api.document(current.path);
+            if (disposed) return;
+            if (snapshot.activePath && snapshot.activePath !== current.path) {
+                return openInternal(snapshot.activePath, { fromServer: true });
+            }
+            await onPoll();
+            if (disposed) return;
+            if (snapshot.revision !== current.revision) {
+                if (pending()) throw conflict();
+                apply(snapshot, "replace");
+                if (snapshot.dirty && !snapshot.conflict) scheduleSave();
+            } else {
+                current = snapshot;
+                emit();
+            }
+        }),
+        dispose() { disposed = true; },
+    };
+}

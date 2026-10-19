@@ -1,58 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, realpath, stat, open, rename, unlink } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { mkdir, readFile, realpath, stat } from "node:fs/promises";
+import { basename, isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { EditorError } from "./errors.mjs";
+import { MAX_BYTES, atomicWrite, diskText, writeNew } from "./files.mjs";
 
-const MAX_BYTES = 2 * 1024 * 1024;
+export const DEFAULT_WELCOME_PATH = fileURLToPath(new URL("../../resources/welcome.md", import.meta.url));
 const hash = (text) => createHash("sha256").update(text).digest("hex");
 
-export class EditorError extends Error {
-    constructor(code, message, status = 409) {
-        super(message);
-        this.code = code;
-        this.status = status;
-    }
-}
-
-export async function atomicWrite(path, content, mode = 0o600) {
-    const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
-    let created = false;
-    try {
-        const handle = await open(temporary, "wx", mode);
-        created = true;
-        try {
-            await handle.writeFile(content, "utf8");
-            await handle.sync();
-        } finally {
-            await handle.close();
-        }
-        await rename(temporary, path);
-        created = false;
-    } finally {
-        if (created) await unlink(temporary);
-    }
-}
-
-export async function diskText(path) {
-    const info = await stat(path);
-    if (!info.isFile() || info.size > MAX_BYTES) {
-        throw new EditorError("unsupported_file", "Choose a text file smaller than 2 MiB.", 400);
-    }
-    let content;
-    try {
-        content = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
-    } catch (error) {
-        if (error instanceof TypeError) throw new EditorError("unsupported_encoding", "This editor requires a UTF-8 text file.", 400);
-        throw error;
-    }
-    if (content.includes("\0") || Buffer.byteLength(content) > MAX_BYTES) {
-        throw new EditorError("unsupported_file", "This editor only supports text files smaller than 2 MiB.", 400);
-    }
-    return content;
-}
-
 export class DocumentStore {
-    constructor(artifacts) {
+    constructor(artifacts, { welcomePath = DEFAULT_WELCOME_PATH } = {}) {
         this.artifacts = artifacts;
+        this.welcomePath = welcomePath;
         this.documents = new Map();
         this.locks = new Map();
     }
@@ -65,7 +24,7 @@ export class DocumentStore {
                 await stat(filePath);
             } catch (error) {
                 if (error.code !== "ENOENT") throw error;
-                const welcome = await readFile(new URL("./welcome.md", import.meta.url), "utf8");
+                const welcome = await readFile(this.welcomePath, "utf8");
                 try {
                     await writeNew(filePath, welcome);
                 } catch (failure) {
@@ -187,14 +146,5 @@ export class DocumentStore {
             Object.assign(document, next);
             return this.state(document);
         });
-    }
-}
-
-async function writeNew(path, content) {
-    const handle = await open(path, "wx", 0o600);
-    try {
-        await handle.writeFile(content, "utf8");
-    } finally {
-        await handle.close();
     }
 }
