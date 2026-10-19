@@ -9,6 +9,8 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
     let pendingG = false;
     let pendingWindow = false;
     let gTimer;
+    let disposed = false;
+    const handlers = new AbortController();
 
     const node = (entry, parent, depth) => {
         const existing = nodes.get(entry.path);
@@ -63,10 +65,12 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
     }
 
     async function load(directory) {
+        if (disposed) return;
         directory.loading = true;
         render();
         try {
             const result = await api(`tree?dir=${encodeURIComponent(directory.path)}`);
+            if (disposed) return;
             directory.children = result.entries.map((entry) => node(entry, directory, directory.depth + 1));
         } finally {
             directory.loading = false;
@@ -85,6 +89,7 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
     }
 
     function render() {
+        if (disposed) return;
         flatten();
         if (selected && !visible.includes(nodes.get(selected))) selected = visible[0]?.path ?? null;
         if (!selected && visible.length) selected = visible[0].path;
@@ -125,7 +130,7 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
         const current = nodes.get(selected);
         if (current) {
             tree.setAttribute("aria-activedescendant", current.id);
-            document.getElementById(current.id)?.scrollIntoView({ block: "nearest" });
+            tree.querySelector(`[id="${current.id}"]`)?.scrollIntoView({ block: "nearest" });
         } else {
             tree.removeAttribute("aria-activedescendant");
         }
@@ -146,6 +151,7 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
 
     async function toggle(directory, expand = !directory.expanded) {
         if (expand && !directory.children) await load(directory);
+        if (disposed) return;
         directory.expanded = expand;
         render();
     }
@@ -174,6 +180,7 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
     }
 
     async function refresh() {
+        if (disposed) return;
         const expanded = [...nodes.values()].filter((item) => item.type === "directory" && item.expanded && item.children);
         const root = nodes.get(rootPath);
         if (!root) return;
@@ -193,6 +200,7 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
     }
 
     async function reveal(path) {
+        if (disposed) return;
         active = path;
         const root = nodes.get(rootPath);
         if (!root || !path?.startsWith(`${rootPath}/`)) return render();
@@ -200,7 +208,8 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
         const parts = path.slice(rootPath.length + 1).split("/");
         for (const [index, part] of parts.entries()) {
             if (!directory.children) await load(directory);
-            const child = directory.children.find((item) => item.name === part);
+            if (disposed) return;
+            const child = directory.children?.find((item) => item.name === part);
             if (!child) break;
             if (index === parts.length - 1) { selected = child.path; break; }
             child.expanded = true;
@@ -210,7 +219,9 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
     }
 
     async function init(activePath) {
+        if (disposed) return;
         const result = await api("tree");
+        if (disposed) return result;
         rootPath = result.root;
         const root = node({ name: result.rootName, path: result.root, type: "directory" }, null, 0);
         root.expanded = true;
@@ -220,7 +231,7 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
         return result;
     }
 
-    const run = (promise) => Promise.resolve(promise).catch(onError);
+    const run = (promise) => Promise.resolve(promise).catch((error) => { if (!disposed) onError(error); });
 
     tree.addEventListener("keydown", (event) => {
         if (event.metaKey || event.altKey) return;
@@ -265,7 +276,7 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
             event.stopPropagation();
             actions[key]();
         }
-    });
+    }, { signal: handlers.signal });
 
     tree.addEventListener("click", (event) => {
         const row = event.target.closest(".tree-row");
@@ -275,7 +286,7 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
         const double = event.detail >= 2 && item?.type === "file";
         if (!double) tree.focus({ preventScroll: true });
         run(activate(item, { focusEditor: double }));
-    });
+    }, { signal: handlers.signal });
 
     return {
         init, reveal,
@@ -285,8 +296,10 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
             render();
         },
         focus() {
+            if (disposed) return;
             if (!selected && visible.length) select(visible[0].path);
             tree.focus({ preventScroll: true });
         },
+        dispose() { disposed = true; clearTimeout(gTimer); handlers.abort(); nodes.clear(); },
     };
 }

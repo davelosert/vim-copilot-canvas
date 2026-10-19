@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { atomicWrite } from "./store.mjs";
+import { atomicWrite } from "./files.mjs";
 
 const MAX_ITEMS = 200;
 
