@@ -3,8 +3,9 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { EditorError } from "./store.mjs";
+import { SettingsStore } from "./settings.mjs";
 
-export async function startServer({ store, workspace, document, root }) {
+export async function startServer({ store, workspace, document, root, settings = new SettingsStore() }) {
     const state = { activePath: document.path };
     const load = async (path) => store.open(await workspace.resolve(path ?? state.activePath));
     const snapshot = async (doc) => ({ ...(await store.snapshot(doc)), activePath: state.activePath });
@@ -51,7 +52,10 @@ export async function startServer({ store, workspace, document, root }) {
             if (req.method === "GET" && url.pathname === "/api/tree") {
                 return json(200, await workspace.list(url.searchParams.get("dir") ?? undefined));
             }
-            if (req.method !== "POST" || !["/api/draft", "/api/save", "/api/reload", "/api/open"].includes(url.pathname)) {
+            if (req.method === "GET" && url.pathname === "/api/settings") {
+                return json(200, await settings.read());
+            }
+            if (req.method !== "POST" || !["/api/draft", "/api/save", "/api/reload", "/api/open", "/api/settings"].includes(url.pathname)) {
                 return json(404, { error: "not_found", message: "Unknown endpoint." });
             }
             if (req.headers["content-type"] !== "application/json") {
@@ -67,6 +71,9 @@ export async function startServer({ store, workspace, document, root }) {
             let input;
             try { input = JSON.parse(body); }
             catch { throw new EditorError("invalid_json", "The request is not valid JSON.", 400); }
+            if (url.pathname === "/api/settings") {
+                return json(200, await settings.update(input));
+            }
             if (!input || typeof input !== "object" || typeof input.path !== "string") {
                 throw new EditorError("invalid_input", "A document path is required.", 400);
             }

@@ -1,6 +1,6 @@
 import { basicSetup } from "codemirror";
 import { EditorState, Compartment } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import { LanguageDescription } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
@@ -62,6 +62,8 @@ const theme = new Compartment();
 const lineBreaks = new Compartment();
 const editable = new Compartment();
 const language = new Compartment();
+const numbering = new Compartment();
+let settings = { relativeLineNumbers: false };
 let languageRequest = 0;
 let markdownLayout = "split";
 let editor;
@@ -261,11 +263,70 @@ function editorTheme() {
 
 const documentUrl = () => `document?path=${encodeURIComponent(current.path)}`;
 
+function lineNumberStyle() {
+    return lineNumbers({
+        formatNumber: (number, state) => {
+            const active = state.doc.lineAt(state.selection.main.head).number;
+            return String(settings.relativeLineNumbers && number !== active ? Math.abs(number - active) : number);
+        },
+    });
+}
+
+function applySettings(value) {
+    settings = value;
+    $("relative-line-numbers").checked = value.relativeLineNumbers;
+    editor.dispatch({ effects: numbering.reconfigure(lineNumberStyle()) });
+}
+
+function settingsError(error) {
+    $("settings-status").textContent = `Could not update settings: ${error.message}`;
+}
+
+function setupSettings() {
+    const checkbox = $("relative-line-numbers");
+    $("settings-button").addEventListener("click", async () => {
+        $("settings").showModal();
+        checkbox.disabled = true;
+        $("settings-status").textContent = "Loading settings...";
+        try {
+            applySettings(await api("settings"));
+            $("settings-status").textContent = "";
+        } catch (error) {
+            settingsError(error);
+        } finally {
+            checkbox.disabled = false;
+        }
+    });
+    checkbox.addEventListener("change", async () => {
+        const relativeLineNumbers = checkbox.checked;
+        checkbox.disabled = true;
+        $("settings-status").textContent = "Saving settings...";
+        try {
+            applySettings(await api("settings", { relativeLineNumbers }));
+            $("settings-status").textContent = "Settings saved.";
+        } catch (error) {
+            checkbox.checked = settings.relativeLineNumbers;
+            settingsError(error);
+        } finally {
+            checkbox.disabled = false;
+        }
+    });
+    $("close-settings").addEventListener("click", () => $("settings").close());
+}
+
 function createState(content) {
     return EditorState.create({
             doc: content,
             extensions: [
                 vim(), basicSetup,
+                numbering.of(lineNumberStyle()),
+                // CodeMirror's number gutter otherwise redraws only for document/config changes.
+                EditorState.transactionExtender.of((transaction) => {
+                    if (!settings.relativeLineNumbers ||
+                        transaction.startState.doc.lineAt(transaction.startState.selection.main.head).number ===
+                        transaction.newDoc.lineAt(transaction.newSelection.main.head).number) return null;
+                    return { effects: numbering.reconfigure(lineNumberStyle()) };
+                }),
                 language.of(isMarkdown() ? markdown({ codeLanguages: languages }) : []),
                 EditorView.lineWrapping,
                 lineBreaks.of(EditorState.lineSeparator.of(content.includes("\r\n") ? "\r\n" : "\n")),
@@ -420,7 +481,9 @@ function setupSidebar() {
 }
 
 async function boot() {
-    const initial = await api("document");
+    const [initial, preferences] = await Promise.all([api("document"), api("settings")]);
+    settings = preferences;
+    $("relative-line-numbers").checked = settings.relativeLineNumbers;
     current = initial;
     editor = new EditorView({ state: createState(initial.content), parent: $("editor") });
     attachVim();
@@ -428,6 +491,7 @@ async function boot() {
     showDocument();
     editor.focus();
     setupSidebar().catch(showError);
+    setupSettings();
 
     // In-document links (headings, footnotes) must not replace location.hash, which carries the API token.
     $("preview").addEventListener("click", (event) => {

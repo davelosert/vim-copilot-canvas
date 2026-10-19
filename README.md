@@ -20,6 +20,22 @@ controls, live rendering, and word count; other files use the full editor pane
 without preview controls. Returning to Markdown restores the selected layout.
 Source/preview layout adapts to narrow panels.
 
+## Settings
+
+Click the **Settings cog** at the top right of the canvas to open its settings
+dialog and enable **Relative line numbers**. Other lines
+show their distance from the cursor line, which keeps its absolute number.
+The default is absolute line numbers. Changes apply immediately without resetting
+the document, cursor, undo history, or Vim mode, and apply to all text file types.
+
+Preferences are stored in
+`$COPILOT_HOME/extensions/vim-markdown/artifacts/settings.json`
+(`~/.copilot/extensions/vim-markdown/artifacts/settings.json` by default).
+They are user-wide, not tied to a document, project, or panel, and survive
+canvas/provider/app restarts. New panels and the Settings dialog load the saved
+preferences. A failed settings write is shown in the dialog without changing
+the active preference.
+
 ## File explorer
 
 The left sidebar lists all folders and files below the root, including dotfiles,

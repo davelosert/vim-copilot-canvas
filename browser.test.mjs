@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { DocumentStore } from "./store.mjs";
 import { startServer } from "./server.mjs";
 import { Workspace } from "./workspace.mjs";
+import { SettingsStore } from "./settings.mjs";
 import { realpath } from "node:fs/promises";
 
 async function until(assertion, timeout = 7000) {
@@ -35,7 +36,7 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
     await writeFile(second, "# Second\n\nOther file.\n");
     await writeFile(nested, "# Nested\n");
     const workspace = await Workspace.create({ rootPath: temporary, ignore: ["artifacts"] });
-    const entry = await startServer({ store, workspace, document, root });
+    const entry = await startServer({ store, workspace, document, root, settings: new SettingsStore(join(temporary, "settings.json")) });
     const browser = await chromium.launch({ headless: true });
     t.after(async () => { await browser.close(); await entry.close(); });
     const page = await browser.newPage({ viewport: { width: 1200, height: 820 } });
@@ -391,7 +392,7 @@ test("browser: language-data highlighting and Markdown-only preview", { timeout:
     const store = new DocumentStore(join(temporary, "artifacts"));
     const document = await store.open(join(temporary, "notes.custom"));
     const workspace = await Workspace.create({ rootPath: temporary, ignore: ["artifacts"] });
-    const entry = await startServer({ store, workspace, document, root });
+    const entry = await startServer({ store, workspace, document, root, settings: new SettingsStore(join(temporary, "settings.json")) });
     const browser = await chromium.launch({ headless: true });
     t.after(async () => { await browser.close(); await entry.close(); });
     const page = await browser.newPage({ viewport: { width: 1200, height: 820 } });
@@ -525,5 +526,128 @@ test("browser: language-data highlighting and Markdown-only preview", { timeout:
     assert.ok(chunkResponses.length > 0);
     assert.ok(chunkResponses.every((response) => response.status() === 200));
     assert.ok(chunkResponses.every((response) => response.headers()["content-type"].startsWith("text/javascript")));
+    assert.deepEqual(errors, []);
+});
+
+test("browser: relative line numbers persist without resetting editor state", { timeout: 60000 }, async (t) => {
+    const root = dirname(fileURLToPath(import.meta.url));
+    const temporary = await realpath(await mkdtemp(join(tmpdir(), "vim-settings-browser-")));
+    t.after(() => rm(temporary, { recursive: true, force: true }));
+    const path = join(temporary, "note.md");
+    const source = "# One\nTwo\nThree\nFour\nFive";
+    await writeFile(path, source);
+    await writeFile(join(temporary, "other.txt"), "First\nSecond\nThird");
+    const store = new DocumentStore(join(temporary, "drafts"));
+    const document = await store.open(path);
+    const workspace = await Workspace.create({ filePath: path, ignore: ["drafts"] });
+    const settingsFile = join(temporary, "preferences", "settings.json");
+    const entries = [];
+    const start = async () => {
+        const entry = await startServer({ store, workspace, document, root, settings: new SettingsStore(settingsFile) });
+        entries.push(entry);
+        return entry;
+    };
+    let browser;
+    t.after(async () => {
+        await browser?.close();
+        await Promise.all(entries.map((entry) => entry.close()));
+    });
+    const entry = await start();
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({ viewport: { width: 1200, height: 820 } });
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const numbers = () => page.locator(".cm-lineNumbers .cm-gutterElement").evaluateAll((elements) =>
+        elements.filter((element) => getComputedStyle(element).visibility !== "hidden").map((element) => element.textContent));
+    const toggle = async (enabled) => {
+        const originalCursor = await page.locator("#cursor").innerText();
+        await page.locator("#settings-button").click();
+        await until(async () => assert.equal(await page.locator("#relative-line-numbers").isEnabled(), true));
+        assert.equal(await page.locator("#cursor").innerText(), originalCursor, "opening settings preserves cursor");
+        await page.locator("#relative-line-numbers").setChecked(enabled);
+        await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
+        assert.equal(await page.locator("#cursor").innerText(), originalCursor, "saving settings preserves cursor");
+        await page.locator("#close-settings").click();
+        await until(async () => assert.equal(await page.evaluate(() => document.activeElement.id), "settings-button"));
+    };
+    await page.goto(entry.url);
+    await page.locator(".cm-editor").waitFor();
+    const settingsButton = page.getByRole("button", { name: "Open settings", exact: true });
+    assert.equal(await settingsButton.locator('svg[aria-hidden="true"]').isVisible(), true);
+    assert.equal(await settingsButton.evaluate((button) => button === button.parentElement.lastElementChild), true);
+    await settingsButton.click();
+    assert.equal(await page.getByRole("dialog", { name: "Settings", exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole("checkbox", { name: "Relative line numbers", exact: true }).isVisible(), true);
+    await page.keyboard.press("Escape");
+    await until(async () => assert.equal(await page.locator("#settings").isVisible(), false));
+    await page.locator(".cm-line").first().click({ position: { x: 15, y: 5 } });
+    await page.keyboard.press("0");
+    assert.deepEqual(await numbers(), ["1", "2", "3", "4", "5"]);
+    await page.keyboard.press("3");
+    await page.keyboard.press("G");
+    const cursor = await page.locator("#cursor").innerText();
+    await page.keyboard.press("i");
+    await page.keyboard.type("Edited ");
+    await until(async () => assert.match(await readFile(path, "utf8"), /Edited Three/));
+    await toggle(true);
+    assert.deepEqual(errors, []);
+    assert.equal(await page.locator("#mode").innerText(), "INSERT");
+    assert.equal(await page.locator("#cursor").innerText(), cursor.replace("Col 1", "Col 8"));
+    assert.match(await page.locator(".cm-content").innerText(), /Edited Three/);
+    await until(async () => assert.deepEqual(await numbers(), ["2", "1", "3", "1", "2"]));
+    await page.locator(".cm-line").nth(2).click();
+    await page.keyboard.press("Escape");
+    await until(async () => assert.equal(await page.locator("#mode").innerText(), "NORMAL"));
+    await page.keyboard.press("u");
+    await until(async () => assert.equal(await readFile(path, "utf8"), source));
+    await page.keyboard.press("3");
+    await page.keyboard.press("G");
+    await page.keyboard.press("j");
+    await until(async () => assert.deepEqual(await numbers(), ["3", "2", "1", "4", "1"]));
+    await page.keyboard.press("o");
+    await page.keyboard.type("Inserted");
+    await page.keyboard.press("Escape");
+    await until(async () => assert.deepEqual(await numbers(), ["4", "3", "2", "1", "5", "1"]));
+    await until(async () => assert.match(await readFile(path, "utf8"), /Inserted/));
+
+    await page.reload();
+    await page.locator(".cm-editor").waitFor();
+    await until(async () => assert.deepEqual(await numbers(), ["1", "1", "2", "3", "4", "5"]));
+    await page.locator("#tree .tree-label").getByText("other.txt", { exact: true }).click();
+    await until(async () => assert.equal(await page.locator("#filetype").innerText(), "Plain text"));
+    await until(async () => assert.deepEqual(await numbers(), ["1", "1", "2"]));
+    await page.locator(".cm-content").click();
+    await page.keyboard.press("G");
+    await until(async () => assert.deepEqual(await numbers(), ["2", "1", "3"]));
+
+    await page.route("**/api/settings", (route) => route.request().method() === "POST"
+        ? route.fulfill({ status: 503, contentType: "application/json", body: '{"message":"Settings disk is unavailable."}' })
+        : route.continue());
+    await page.locator("#settings-button").click();
+    await until(async () => assert.equal(await page.locator("#relative-line-numbers").isEnabled(), true));
+    await page.locator("#relative-line-numbers").uncheck();
+    await until(async () => assert.match(await page.locator("#settings-status").innerText(), /Settings disk is unavailable/));
+    assert.equal(await page.locator("#relative-line-numbers").isChecked(), true);
+    assert.equal(await page.locator("#save-status").innerText(), "Saved to disk");
+    assert.deepEqual(await numbers(), ["2", "1", "3"]);
+    await page.locator("#close-settings").click();
+    await page.unroute("**/api/settings");
+
+    const reopened = await start();
+    await page.goto(reopened.url);
+    await page.locator(".cm-editor").waitFor();
+    await until(async () => assert.deepEqual(await numbers(), ["1", "1", "2", "3", "4", "5"]));
+    await toggle(false);
+    await until(async () => assert.deepEqual(await numbers(), ["1", "2", "3", "4", "5", "6"]));
+    await page.reload();
+    await page.locator(".cm-editor").waitFor();
+    assert.deepEqual(await numbers(), ["1", "2", "3", "4", "5", "6"]);
+    assert.equal(JSON.parse(await readFile(settingsFile, "utf8")).relativeLineNumbers, false);
+    await page.setViewportSize({ width: 480, height: 720 });
+    assert.equal(await settingsButton.isVisible(), true);
+    await settingsButton.click();
+    assert.equal(await page.getByRole("dialog", { name: "Settings", exact: true }).isVisible(), true);
+    assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
+    await page.getByRole("button", { name: "Close settings", exact: true }).click();
     assert.deepEqual(errors, []);
 });

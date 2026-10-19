@@ -138,6 +138,8 @@ dialog::backdrop { background: #0005; }
 .eyebrow { color: var(--editor-accent); font: 10px var(--font-mono, monospace); letter-spacing: 1.5px; }
 dialog h1 { font-size: 24px; margin: 6px 0; letter-spacing: -.6px; }
 dialog p, .help-note { font-size: 12px; color: var(--editor-muted); }
+.setting { display: flex; align-items: center; gap: 8px; margin-top: 24px; cursor: pointer; }
+.setting input { accent-color: var(--editor-accent); }
 .shortcut-grid { display: grid; grid-template-columns: 145px 1fr; gap: 12px 18px; margin: 24px 0; align-items: center; }
 .shortcut-grid kbd { background: var(--editor-soft); border: 1px solid var(--editor-border); border-radius: 4px; padding: 5px 8px; width: fit-content; }
 .shortcut-grid span { font-size: 12px; }

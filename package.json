@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "esbuild frontend.js --bundle --format=esm --splitting --outdir=assets --entry-names=editor --chunk-names=chunks/[name]-[hash] --minify",
-    "test": "node --test store.test.mjs browser.test.mjs"
+    "test": "node --test store.test.mjs settings.test.mjs browser.test.mjs"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "6.5.2",
