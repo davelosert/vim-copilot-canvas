@@ -128,6 +128,151 @@ test("HTTP endpoints require token and same origin; assets are local", async (t)
     assert.equal(invalid.status, 400);
 });
 
+test("Agent endpoint authenticates, validates context, and sends to the owning session", async (t) => {
+    const { store, document } = await fixture(t);
+    const root = dirname(fileURLToPath(import.meta.url));
+    const workspace = await Workspace.create({ filePath: document.path, ignore: ["artifacts"] });
+    const messages = [];
+    let failure;
+    let hold;
+    const entry = await startServer({
+        store, workspace, document, root,
+        sendMessage: async (message) => {
+            if (hold) await hold;
+            if (failure) throw failure;
+            messages.push(message);
+            return "message-1";
+        },
+    });
+    t.after(() => entry.close());
+    const url = new URL(entry.url);
+    const input = {
+        path: document.path, prompt: " Explain this ",
+        selections: [{ start: { line: 0, character: 2 }, end: { line: 0, character: 7 }, text: "Draft" }],
+    };
+    const post = (body = input, headers = {}) => fetch(new URL("/api/agent", url), {
+        method: "POST",
+        headers: { "X-Editor-Token": url.hash.slice(1), "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+    });
+    assert.equal((await post(input, { "X-Editor-Token": "" })).status, 403);
+    assert.equal((await post(input, { Origin: "https://example.com" })).status, 403);
+    for (const invalid of [
+        { prompt: "" }, { prompt: "x".repeat(32001) }, { selections: [] },
+        { selections: [null] },
+        { selections: [{ start: { line: -1, character: 0 }, end: { line: 0, character: 0 }, text: "" }] },
+        { selections: [{ start: { line: 1, character: 3 }, end: { line: 1, character: 2 }, text: "" }] },
+        { path: join(workspace.root, "..", "outside.md") },
+    ]) {
+        assert.notEqual((await post({ ...input, ...invalid })).status, 200);
+    }
+    assert.equal(messages.length, 0);
+    await store.update(document, "# Draft\n", document.revision);
+    const response = await post();
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { messageId: "message-1" });
+    assert.deepEqual(messages, [{
+        prompt: "Explain this", mode: "immediate",
+        attachments: [{
+            type: "selection", filePath: document.path, displayName: "note.md:1",
+            selection: { start: input.selections[0].start, end: input.selections[0].end }, text: "Draft",
+        }],
+    }]);
+    assert.equal(await readFile(document.path, "utf8"), "# Original\n");
+    failure = new Error("Session disconnected");
+    const failed = await post();
+    assert.equal(failed.status, 500);
+    assert.match((await failed.json()).message, /Session disconnected/);
+    failure = undefined;
+    let release;
+    hold = new Promise((resolve) => { release = resolve; });
+    const pending = post();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal((await post()).status, 409);
+    release();
+    assert.equal((await pending).status, 200);
+    hold = undefined;
+    assert.equal((await post()).status, 200);
+});
+
+test("Agent endpoint reports unavailable sessions explicitly", async (t) => {
+    const { store, document } = await fixture(t);
+    const root = dirname(fileURLToPath(import.meta.url));
+    const workspace = await Workspace.create({ filePath: document.path });
+    const entry = await startServer({ store, workspace, document, root });
+    t.after(() => entry.close());
+    const url = new URL(entry.url);
+    const response = await fetch(new URL("/api/agent", url), {
+        method: "POST",
+        headers: { "X-Editor-Token": url.hash.slice(1), "Content-Type": "application/json" },
+        body: JSON.stringify({ path: document.path, prompt: "x", selections: [{ start: { line: 0, character: 0 }, end: { line: 0, character: 0 }, text: "" }] }),
+    });
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error, "agent_unavailable");
+});
+
+test("review endpoints collect comments, persist them, and send them as one message", async (t) => {
+    const { root: base, store, document, artifacts } = await fixture(t, "One\nTwo\nThree\n");
+    const other = join(base, "other.md");
+    await writeFile(other, "Other\n");
+    const root = dirname(fileURLToPath(import.meta.url));
+    const workspace = await Workspace.create({ rootPath: base, ignore: ["artifacts"] });
+    const messages = [];
+    let failure;
+    const start = (sendMessage) => startServer({ store, workspace, document, root, sendMessage });
+    const entry = await start(async (message) => {
+        if (failure) throw failure;
+        messages.push(message);
+        return "review-1";
+    });
+    t.after(() => entry.close());
+    const url = new URL(entry.url);
+    const call = (path, body, at = url) => fetch(new URL(`/api/${path}`, at), {
+        method: body === undefined ? "GET" : "POST",
+        headers: { "X-Editor-Token": at.hash.slice(1), ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    assert.equal((await fetch(new URL("/api/review", url))).status, 403);
+    assert.deepEqual(await (await call("review")).json(), { items: [] });
+    assert.equal((await call("review/send", {})).status, 400);
+    const first = { path: document.path, prompt: " Fix wording ", selections: [{ start: { line: 1, character: 0 }, end: { line: 2, character: 5 }, text: "Two\nThree" }] };
+    const second = { path: other, prompt: "Shorten", selections: [{ start: { line: 0, character: 0 }, end: { line: 0, character: 5 }, text: "Other" }] };
+    assert.equal((await call("review/add", { ...first, prompt: "" })).status, 400);
+    assert.notEqual((await call("review/add", { ...first, path: join(base, "..", "x.md") })).status, 200);
+    await call("review/add", first);
+    const added = await (await call("review/add", second)).json();
+    assert.deepEqual(added.items.map(({ label, prompt, lines, path }) => ({ label, prompt, lines, path })), [
+        { label: "note.md:2-3", prompt: "Fix wording", lines: [{ start: 2, end: 3 }], path: document.path },
+        { label: "other.md:1", prompt: "Shorten", lines: [{ start: 1, end: 1 }], path: await realpath(other) },
+    ]);
+    assert.equal(messages.length, 0);
+
+    const reopened = await startServer({ store, workspace, document, root, reviews: new (await import("./review.mjs")).ReviewStore(join(artifacts, "reviews")) });
+    t.after(() => reopened.close());
+    assert.equal((await (await call("review", undefined, new URL(reopened.url))).json()).items.length, 2);
+
+    failure = new Error("Session disconnected");
+    assert.equal((await call("review/send", {})).status, 500);
+    assert.equal((await (await call("review")).json()).items.length, 2);
+    failure = undefined;
+    const sent = await (await call("review/send", {})).json();
+    assert.deepEqual(sent, { messageId: "review-1", items: [] });
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].mode, "immediate");
+    assert.match(messages[0].prompt, /2 review comments/);
+    assert.match(messages[0].prompt, /1\. note\.md:2-3 \(.*note\.md\)\n   Fix wording/);
+    assert.match(messages[0].prompt, /2\. other\.md:1 \(.*other\.md\)\n   Shorten/);
+    assert.deepEqual(messages[0].attachments.map(({ displayName, text }) => ({ displayName, text })), [
+        { displayName: "note.md:2-3", text: "Two\nThree" }, { displayName: "other.md:1", text: "Other" },
+    ]);
+
+    const items = (await (await call("review/add", first)).json()).items;
+    await call("review/add", second);
+    assert.equal((await call("review/remove", { ids: "x" })).status, 400);
+    assert.deepEqual((await (await call("review/remove", { ids: [items[0].id] })).json()).items.map((item) => item.label), ["other.md:1"]);
+    assert.deepEqual(await (await call("review/clear", {})).json(), { items: [] });
+});
+
 test("workspace and tree/open endpoints stay inside the root", async (t) => {
     const base = await realpath(await mkdtemp(join(tmpdir(), "vim-markdown-ws-")));
     t.after(() => rm(base, { recursive: true, force: true }));

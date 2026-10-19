@@ -3,6 +3,7 @@
 A Markdown workspace with **Vim at your fingertips**.
 Make yourself at home: press `i`, change a line, then `Esc`.
 
+> [!NOTE]
 > Your words stay local. Edits save to the file automatically.
 > Conflicting drafts are preserved rather than overwriting disk changes.
 
