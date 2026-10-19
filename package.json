@@ -1,5 +1,5 @@
 {
-  "name": "copilot-canvas-vim-markdown",
+  "name": "vim-copilot-canvas",
   "private": true,
   "type": "module",
   "scripts": {

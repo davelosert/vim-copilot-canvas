@@ -385,7 +385,7 @@ function showDocument() {
     configureLanguage();
     $("filepath").textContent = current.path;
     $("filepath").title = current.path;
-    document.title = `${current.name} · Vim Markdown`;
+    document.title = `${current.name} · Vim Copilot Canvas`;
     $("draft-status").textContent = current.dirty ? "Draft recovered" : "All changes saved";
     renderPreview();
     updateCursor();

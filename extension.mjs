@@ -18,7 +18,7 @@ function entry(ctx) {
 const session = await joinSession({
     canvases: [createCanvas({
         id: "vim-markdown",
-        displayName: "Vim Markdown",
+        displayName: "Vim Copilot Canvas",
         description: "Edit UTF-8 text files with Vim keybindings, syntax highlighting, a file explorer, conflict-aware saves, and a live preview for Markdown.",
         inputSchema: {
             type: "object",

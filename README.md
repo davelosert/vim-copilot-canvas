@@ -1,11 +1,11 @@
-# Vim Markdown canvas
+# Vim Copilot Canvas
 
 A user-scoped Copilot canvas using CodeMirror 6, `@replit/codemirror-vim`,
 filename-based syntax highlighting via `@codemirror/language-data`, and a
 sanitized live preview for Markdown. This is not Neovim:
 Lua configuration and Neovim plugins are not loaded.
 
-Open the `vim-markdown` canvas without input to browse the session's working
+Open the `Vim Copilot Canvas` canvas without input to browse the session's working
 directory (its Markdown README/index or first supported text file opens first); if the session
 has no working directory or it contains no supported text files, the editable welcome
 document opens instead. Alternatively pass `{ "filePath": "/abs/doc.md" }`
