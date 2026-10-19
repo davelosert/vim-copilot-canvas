@@ -29,6 +29,8 @@ The left sidebar lists folders and supported files below the root. Dotfiles and
 
 Click a file to preview it while staying in the explorer, double-click to edit
 it, click a folder to toggle it, and drag the sidebar edge to resize it.
+Hiding the sidebar gives the editor and preview its space; reopening restores
+the sidebar width without changing the selected layout.
 Switching files flushes pending edits to disk and starts a fresh undo history.
 Conflicting drafts are preserved without overwriting disk changes.
 

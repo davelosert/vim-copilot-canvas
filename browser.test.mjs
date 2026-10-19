@@ -183,6 +183,9 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
         const selected = () => page.locator('#tree .tree-row[aria-selected="true"] .tree-label').innerText();
         await until(async () => assert.deepEqual(await rows().locator(".tree-label").allInnerTexts(), ["notes", "example.md"]));
         assert.equal(await page.locator("#tree .tree-row.active .tree-label").innerText(), "example.md");
+        assert.deepEqual(await rows().locator(".tree-icon").evaluateAll((icons) => icons.map((item) => item.dataset.icon)), ["folder", "markdown"]);
+        assert.equal(await rows().locator('.tree-icon[aria-hidden="true"]').count(), 2);
+        assert.equal(await rows().locator(".tree-disclosure.visible").count(), 1);
         await page.locator(".cm-content").click();
         await page.keyboard.press("Escape");
         await keys(["Control+w", "h"]);
@@ -191,6 +194,7 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
         assert.equal(await selected(), "notes");
         await keys(["l"]);
         await until(async () => assert.deepEqual(await rows().locator(".tree-label").allInnerTexts(), ["notes", "deep", "second.md", "example.md"]));
+        assert.deepEqual(await rows().locator(".tree-icon").evaluateAll((icons) => icons.map((item) => item.dataset.icon)), ["folder-open", "folder", "markdown", "markdown"]);
         await keys(["j", "j"]);
         assert.equal(await selected(), "second.md");
         await keys([" "]);
@@ -237,6 +241,48 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
         await page.locator('#tree .tree-row:has-text("example.md")').click();
         await until(async () => assert.equal(await page.locator("#filepath").innerText(), path));
         await page.locator(".cm-content").click();
+    });
+
+    await t.test("collapsing and reopening the explorer preserves workspace geometry", async () => {
+        for (const width of [1200, 701, 700, 480]) {
+            await page.setViewportSize({ width, height: 820 });
+            for (const layout of ["edit", "split", "preview"]) {
+                await page.locator(`button[data-layout="${layout}"]`).click();
+                for (const open of [false, true, false]) {
+                    if (await page.locator("#toggle-explorer").getAttribute("aria-pressed") !== String(open)) {
+                        await page.locator("#toggle-explorer").click();
+                    }
+                    await until(async () => {
+                        const bounds = await page.evaluate(() => {
+                            const rect = (selector) => {
+                                const { x, y, width, height } = document.querySelector(selector).getBoundingClientRect();
+                                return { x, y, width, height };
+                            };
+                            return {
+                                shell: rect("#shell"), workspace: rect("#workspace"),
+                                explorer: rect("#explorer"), handle: rect("#resize-explorer"),
+                                editor: rect(".editor-pane"), preview: rect(".preview-pane"),
+                            };
+                        });
+                        const context = `${width}px, ${layout}, explorer ${open ? "open" : "closed"}`;
+                        const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1,
+                            `${context}: expected ${expected}, got ${actual}`);
+                        const inset = open && width > 700 ? bounds.explorer.width + bounds.handle.width : 0;
+                        close(bounds.workspace.x, bounds.shell.x + inset);
+                        close(bounds.workspace.y, bounds.shell.y);
+                        close(bounds.workspace.width, bounds.shell.width - inset);
+                        close(bounds.workspace.height, bounds.shell.height);
+                        for (const pane of layout === "split" ? ["editor", "preview"] : [layout === "edit" ? "editor" : "preview"]) {
+                            close(bounds[pane].width, bounds.workspace.width / (layout === "split" && width > 700 ? 2 : 1));
+                            close(bounds[pane].height, bounds.workspace.height / (layout === "split" && width <= 700 ? 2 : 1));
+                        }
+                    });
+                }
+            }
+        }
+        await page.setViewportSize({ width: 1200, height: 820 });
+        await page.locator('button[data-layout="split"]').click();
+        await page.locator("#toggle-explorer").click();
     });
 
     await t.test("sanitized preview, responsive layouts, theme and shortcuts", async () => {
