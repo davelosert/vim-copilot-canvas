@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "vim-copilot-canvas",
+  "description": "A Vim-style editing canvas for the GitHub Copilot App.",
+  "version": "1.0.0",
+  "author": {
+    "name": "davelosert",
+    "url": "https://github.com/davelosert"
+  },
+  "repository": "https://github.com/davelosert/vim-copilot-canvas",
+  "keywords": [
+    "copilot-canvas",
+    "vim",
+    "markdown",
+    "editor"
+  ],
+  "extensions": {
+    "com.github.davelosert": {
+      "extensions": [
+        "."
+      ]
+    }
+  }
+}
