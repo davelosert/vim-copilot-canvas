@@ -32,10 +32,30 @@ function resolveTheme(name, systemDark) {
     return selected.light ?? selected.dark;
 }
 
-export function editorTheme(name = "system", systemDark = false) {
+function luminance(color) {
+    const channels = color.slice(1, 7).match(/../g).map((value) => parseInt(value, 16) / 255);
+    const [red, green, blue] = channels.map((value) =>
+        value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function contrastRatio(first, second) {
+    const [lighter, darker] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
+export function editorThemePalette(name = "system", systemDark = false) {
     const selected = editorThemes[name] ?? editorThemes.system;
     const dark = Boolean(selected.dark && !selected.light || selected.followsSystem && systemDark);
     const colors = resolveTheme(name, systemDark);
+    const accent = colors.heading ?? colors.link;
+    const accentContrast = contrastRatio(colors.foreground, accent) >= contrastRatio(colors.background, accent)
+        ? colors.foreground : colors.background;
+    return { colors, dark, accent, accentContrast };
+}
+
+export function editorTheme(name = "system", systemDark = false) {
+    const { colors, dark } = editorThemePalette(name, systemDark);
     return [
         EditorView.theme({
             "&": { color: colors.foreground, backgroundColor: colors.background, "--editor-cursor-color": colors.foreground, "--editor-cursor-text": colors.background },
