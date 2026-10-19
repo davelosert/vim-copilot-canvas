@@ -132,6 +132,9 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
         const selected = () => page.locator('#tree .tree-row[aria-selected="true"] .tree-label').innerText();
         await until(async () => assert.deepEqual(await rows().locator(".tree-label").allInnerTexts(), ["notes", "example.md"]));
         assert.equal(await page.locator("#tree .tree-row.active .tree-label").innerText(), "example.md");
+        assert.deepEqual(await rows().locator(".tree-icon").evaluateAll((icons) => icons.map((item) => item.dataset.icon)), ["folder", "markdown"]);
+        assert.equal(await rows().locator('.tree-icon[aria-hidden="true"]').count(), 2);
+        assert.equal(await rows().locator(".tree-disclosure.visible").count(), 1);
         await page.locator(".cm-content").click();
         await page.keyboard.press("Escape");
         await keys(["Control+w", "h"]);
@@ -140,6 +143,7 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
         assert.equal(await selected(), "notes");
         await keys(["l"]);
         await until(async () => assert.deepEqual(await rows().locator(".tree-label").allInnerTexts(), ["notes", "deep", "second.md", "example.md"]));
+        assert.deepEqual(await rows().locator(".tree-icon").evaluateAll((icons) => icons.map((item) => item.dataset.icon)), ["folder-open", "folder", "markdown", "markdown"]);
         await keys(["j", "j"]);
         assert.equal(await selected(), "second.md");
         await keys([" "]);

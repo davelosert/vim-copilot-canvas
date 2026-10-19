@@ -1,6 +1,7 @@
 // Vim-style, mouse-friendly file tree. Directories load lazily from /api/tree.
 export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) {
     const nodes = new Map();
+    const svgNamespace = "http://www.w3.org/2000/svg";
     let rootPath = null;
     let selected = null;
     let active = null;
@@ -16,6 +17,50 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
         nodes.set(entry.path, value);
         return value;
     };
+
+    function icon(name, className) {
+        const svg = document.createElementNS(svgNamespace, "svg");
+        svg.setAttribute("viewBox", "0 0 16 16");
+        svg.setAttribute("aria-hidden", "true");
+        svg.setAttribute("focusable", "false");
+        svg.dataset.icon = name;
+        svg.setAttribute("class", className);
+
+        const path = document.createElementNS(svgNamespace, "path");
+        path.setAttribute("d", {
+            chevron: "m6 3.75 4.25 4.25L6 12.25",
+            folder: "M1.75 4.75h4l1.5 1.5h7v6.5a1 1 0 0 1-1 1h-10.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z",
+            "folder-open": "M1.75 5.25h12.5l-1.2 6.55a1.25 1.25 0 0 1-1.23 1.02H3.2a1.25 1.25 0 0 1-1.23-1.48l.78-4.55",
+            file: "M4 1.75h5L12.5 5v9.25a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-11.5a1 1 0 0 1 1-1Z",
+            markdown: "M4 1.75h5L12.5 5v9.25a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-11.5a1 1 0 0 1 1-1Z",
+        }[name]);
+        path.setAttribute("fill", name.startsWith("folder") ? "currentColor" : "none");
+        path.setAttribute("fill-opacity", "0.12");
+        path.setAttribute("stroke", "currentColor");
+        path.setAttribute("stroke-linecap", "round");
+        path.setAttribute("stroke-linejoin", "round");
+        path.setAttribute("stroke-width", name === "chevron" ? "1.5" : "1.2");
+        svg.append(path);
+
+        if (name === "file" || name === "markdown") {
+            const lines = document.createElementNS(svgNamespace, "path");
+            lines.setAttribute("d", name === "markdown"
+                ? "M5 8.75V6.5l1.25 1.25L7.5 6.5v2.25M9 6.5v2.25h1.75M5 11h5.5"
+                : "M5.25 8h4.5M5.25 10.25h4.5M5.25 12.5h3");
+            lines.setAttribute("fill", "none");
+            lines.setAttribute("stroke", "currentColor");
+            lines.setAttribute("stroke-linecap", "round");
+            lines.setAttribute("stroke-linejoin", "round");
+            lines.setAttribute("stroke-width", "1");
+            svg.append(lines);
+        }
+
+        return svg;
+    }
+
+    function fileIconName(item) {
+        return /\.(md|markdown|mdown)$/i.test(item.name) ? "markdown" : "file";
+    }
 
     async function load(directory) {
         directory.loading = true;
@@ -53,22 +98,27 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
             row.setAttribute("aria-level", String(item.depth));
             row.setAttribute("aria-selected", String(item.path === selected));
             if (item.type === "directory") row.setAttribute("aria-expanded", String(item.expanded));
+            if (item.loading) row.setAttribute("aria-busy", "true");
             if (item.path === active) row.classList.add("active");
             row.style.paddingLeft = `${8 + (item.depth - 1) * 14}px`;
             row.title = item.path;
-            const icon = document.createElement("span");
-            icon.className = `tree-icon ${item.type}`;
-            icon.textContent = item.type === "directory" ? (item.loading ? "…" : item.expanded ? "▾" : "▸") : "";
+            const disclosure = document.createElement("span");
+            disclosure.className = `tree-disclosure${item.type === "directory" ? " visible" : ""}`;
+            if (item.type === "directory") disclosure.append(icon("chevron", "tree-chevron"));
+            const fileIcon = icon(
+                item.type === "directory" ? (item.expanded ? "folder-open" : "folder") : fileIconName(item),
+                `tree-icon ${item.type === "directory" ? "folder-icon" : fileIconName(item) === "markdown" ? "markdown-icon" : "file-icon"}`,
+            );
             const label = document.createElement("span");
             label.className = "tree-label";
             label.textContent = item.name;
-            row.append(icon, label);
+            row.append(disclosure, fileIcon, label);
             fragment.append(row);
         }
         if (!visible.length) {
             const empty = document.createElement("div");
             empty.className = "tree-empty";
-            empty.textContent = rootPath ? "No Markdown files here." : "Loading…";
+            empty.textContent = rootPath ? "No supported files here." : "Loading…";
             fragment.append(empty);
         }
         tree.replaceChildren(fragment);
