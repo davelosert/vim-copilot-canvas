@@ -13,10 +13,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(-
 button:hover { background: var(--editor-soft); }
 button:focus-visible { outline: 2px solid var(--color-focus-outline, #3974e8); outline-offset: 2px; }
 button:disabled { cursor: default; opacity: .5; }
-button.primary { background: var(--editor-accent); color: #fff; border-color: transparent; }
-button.primary:hover:not(:disabled) { filter: brightness(.93); }
 kbd { font: 11px var(--font-mono, "SFMono-Regular", Consolas, monospace); }
-button kbd { margin-left: 10px; opacity: .75; }
 .toolbar { min-height: 76px; padding: 16px 22px; display: flex; gap: 16px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--editor-border); }
 .identity, .controls { display: flex; gap: 12px; align-items: center; min-width: 0; }
 .logo { font: 700 23px var(--font-mono, monospace); color: var(--editor-accent); background: color-mix(in srgb, var(--editor-accent) 9%, var(--editor-surface)); border: 1px solid color-mix(in srgb, var(--editor-accent) 20%, var(--editor-border)); border-radius: 9px; padding: 6px 9px; letter-spacing: -4px; width: 44px; flex-shrink: 0; }

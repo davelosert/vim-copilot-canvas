@@ -55,19 +55,21 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
         await page.keyboard.press("Enter");
     };
 
-    await t.test("normal/insert modes, live Markdown preview, and :w", async () => {
+    await t.test("normal/insert modes, immediate disk writes, live preview, and :w", async () => {
         assert.equal(await mode(), "NORMAL");
+        assert.equal(await page.locator("#save-button").count(), 0);
         await page.keyboard.press("i");
         await until(async () => assert.equal(await mode(), "INSERT"));
         await page.keyboard.type("New ");
+        await until(async () => assert.match(await readFile(path, "utf8"), /^New # Hello/));
+        assert.equal(await mode(), "INSERT");
         await page.keyboard.press("Escape");
         await until(async () => assert.equal(await mode(), "NORMAL"));
         await until(async () => assert.match((await state()).content, /^New # Hello/));
-        assert.match(await readFile(path, "utf8"), /^# Hello/);
         await until(async () => assert.match(await page.locator("#preview").innerText(), /^New # Hello/));
         await command("w");
         await until(async () => assert.match(await readFile(path, "utf8"), /^New # Hello/));
-        assert.equal((await state()).dirty, false);
+        await until(async () => assert.equal((await state()).dirty, false));
     });
 
     await t.test("text objects, dot repeat, undo, redo, visual selection, search and macros", async () => {
@@ -96,27 +98,76 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
         await until(async () => assert.match((await state()).content, /First paragraph\.!/));
     });
 
-    await t.test("persistent draft recovery and keyboard save", async () => {
+    await t.test("automatic saving survives reload and recovered drafts save automatically", async () => {
         await keys(["G", "A"]);
         await page.keyboard.type(" recovered");
         await page.keyboard.press("Escape");
         await until(async () => assert.match((await state()).content, / recovered/));
-        assert.doesNotMatch(await readFile(path, "utf8"), / recovered/);
+        await until(async () => assert.match(await readFile(path, "utf8"), / recovered/));
+        await until(async () => assert.equal((await state()).dirty, false));
+        const snapshot = await state();
+        await store.update(document, `${snapshot.content}\nRecovered draft\n`, snapshot.revision);
         await page.reload();
         await page.locator(".cm-editor").waitFor();
         await until(async () => assert.match(await page.locator(".cm-content").innerText(), / recovered/));
+        await until(async () => assert.match(await readFile(path, "utf8"), /Recovered draft/));
+    });
+
+    await t.test("edits during an in-flight save persist without stealing focus", async () => {
+        let release;
+        let started;
+        const held = new Promise((resolve) => { release = resolve; });
+        const saving = new Promise((resolve) => { started = resolve; });
+        await page.route("**/api/save", async (route) => {
+            started();
+            await held;
+            await route.continue();
+        }, { times: 1 });
+        await keys(["g", "g", "i"]);
+        await page.keyboard.type("First ");
+        await saving;
+        await page.keyboard.type("latest ");
+        await page.keyboard.press("Escape");
+        await page.locator("#tree").focus();
+        release();
+        await until(async () => assert.match(await readFile(path, "utf8"), /^First latest /));
+        await until(async () => assert.equal((await state()).dirty, false));
+        assert.equal(await page.evaluate(() => document.activeElement.id), "tree");
+        await page.locator(".cm-content").click();
+    });
+
+    await t.test("failed automatic writes retain the draft and keyboard save retries", async () => {
+        await page.route("**/api/save", (route) => route.fulfill({
+            status: 503, contentType: "application/json",
+            body: JSON.stringify({ error: "write_failed", message: "Disk write failed." }),
+        }));
+        await keys(["g", "g", "i"]);
+        await page.keyboard.type("Retry ");
+        await page.keyboard.press("Escape");
+        await until(async () => assert.match(await page.locator("#notice").innerText(), /Disk write failed/));
+        assert.match(await page.locator("#save-status").innerText(), /Not saved/);
+        assert.doesNotMatch(await readFile(path, "utf8"), /^Retry /);
+        await until(async () => assert.match((await state()).content, /^Retry /));
+        await page.unroute("**/api/save");
         await page.keyboard.press("Control+s");
-        await until(async () => assert.match(await readFile(path, "utf8"), / recovered/));
+        await until(async () => assert.match(await readFile(path, "utf8"), /^Retry /));
+        await until(async () => assert.equal(await page.locator("#save-status").innerText(), "Saved to disk"));
     });
 
     await t.test("external edits cannot overwrite a dirty draft", async () => {
+        let release;
+        const held = new Promise((resolve) => { release = resolve; });
+        await page.route("**/api/save", async (route) => {
+            await held;
+            await route.continue();
+        }, { times: 1 });
         await keys(["g", "g", "i"]);
         await page.keyboard.type("Local ");
         await page.keyboard.press("Escape");
-        await until(async () => assert.match((await state()).content, /^Local /));
+        assert.match(await page.locator(".cm-content").innerText(), /^Local /);
         await writeFile(path, "# External replacement\n");
+        release();
         await until(async () => assert.equal(await page.locator("#conflict").isVisible(), true));
-        assert.equal(await page.locator("#save-button").isDisabled(), true);
         await command("w");
         await until(async () => assert.match(await page.locator("#notice").innerText(), /changed on disk/));
         assert.equal(await readFile(path, "utf8"), "# External replacement\n");
@@ -163,6 +214,7 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
         await page.locator('#tree .tree-row:has-text("example.md")').click();
         await until(async () => assert.equal(await page.locator("#filepath").innerText(), path));
         assert.match((await store.snapshot(await store.open(second))).content, /^Edited # Second/);
+        assert.match(await readFile(second, "utf8"), /^Edited # Second/);
         await page.locator('#tree .tree-row:has-text("deep")').click();
         await until(async () => assert.equal(await rows().filter({ hasText: "nested.md" }).count(), 1));
         await page.locator('#tree .tree-row:has-text("nested.md")').dblclick();

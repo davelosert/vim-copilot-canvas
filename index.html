@@ -17,7 +17,6 @@
         <button data-layout="split" aria-pressed="true">Split</button>
         <button data-layout="preview" aria-pressed="false">Preview</button>
       </div>
-      <button id="save-button" class="primary" title="Save file (Cmd/Ctrl+S or :w)" disabled>Save <kbd>⌘S</kbd></button>
     </div>
   </header>
   <div id="notice" role="status" aria-live="polite" hidden><span id="notice-text"></span><button id="dismiss-notice" aria-label="Dismiss message">×</button></div>
@@ -44,7 +43,7 @@
       <kbd>v / V / Ctrl+v</kbd><span>Visual / line / block selection</span><kbd>ciw / diw</kbd><span>Change / delete inner word</span>
       <kbd>yy / p</kbd><span>Yank a line / paste</span><kbd>u / Ctrl+r</kbd><span>Undo / redo</span>
       <kbd>/ / n / N</kbd><span>Search / next / previous</span><kbd>.</kbd><span>Repeat the last change</span>
-      <kbd>qa ... q / @a</kbd><span>Record / replay a macro</span><kbd>:w / Cmd/Ctrl+s</kbd><span>Save to disk</span>
+      <kbd>qa ... q / @a</kbd><span>Record / replay a macro</span><kbd>:w / Cmd/Ctrl+s</kbd><span>Retry / flush automatic saving</span>
     </div>
     <span class="eyebrow">FILE EXPLORER</span>
     <div class="shortcut-grid">
@@ -55,7 +54,7 @@
       <kbd>R</kbd><span>Refresh tree</span><kbd>q / :Lex</kbd><span>Hide / toggle explorer</span>
       <kbd>:e path</kbd><span>Open a file relative to the root</span><kbd>Click</kbd><span>Open file / toggle folder</span>
     </div>
-    <div class="help-note">Drafts are recovered across reloads. <strong>Save</strong> writes the file. Lua configuration and Neovim plugins are not loaded. Browser/app shortcuts may take precedence.</div>
+    <div class="help-note">Edits save to disk automatically. Conflicting drafts are preserved across reloads. Lua configuration and Neovim plugins are not loaded. Browser/app shortcuts may take precedence.</div>
   </dialog>
 </body>
 </html>

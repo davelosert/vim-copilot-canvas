@@ -65,7 +65,8 @@ let localVersion = 0;
 let persistedVersion = 0;
 let applying = false;
 let blocked = false;
-let draftTimer;
+let saveQueued = false;
+let saveFailed = false;
 let previewTimer;
 let operations = Promise.resolve();
 let explorer;
@@ -91,6 +92,7 @@ async function api(path, input) {
 }
 
 function showError(error) {
+    if (localPending() || current?.dirty) saveFailed = true;
     if (error.code === "draft_conflict") blocked = true;
     if (error.code === "disk_conflict" && current) current.conflict = true;
     $("notice-text").textContent = error.message;
@@ -112,8 +114,7 @@ function refreshStatus() {
     if (!current) return;
     const dirty = localPending() || current.dirty;
     $("filename").textContent = `${current.name}${dirty ? " •" : ""}`;
-    $("save-button").disabled = blocked || current.conflict || !dirty;
-    $("save-status").textContent = blocked ? "Draft conflict" : current.conflict ? "Disk conflict" : dirty ? "Unsaved changes" : "Saved to disk";
+    $("save-status").textContent = blocked ? "Draft conflict" : current.conflict ? "Disk conflict" : saveFailed ? "Not saved" : dirty ? "Saving..." : "Saved to disk";
     $("conflict").hidden = !current.conflict && !blocked;
     $("conflict").querySelector("span").textContent = blocked
         ? "Another panel changed this draft. Your local text is preserved."
@@ -146,8 +147,7 @@ function updateCursor() {
     $("cursor").textContent = `Ln ${line.number}, Col ${column}`;
 }
 
-async function flushDraft() {
-    clearTimeout(draftTimer);
+async function flushDraft({ drain = true } = {}) {
     if (blocked) throw Object.assign(new Error("Resolve the draft conflict before saving. Your local text has not been replaced."), { code: "draft_conflict" });
     while (localPending()) {
         const version = localVersion;
@@ -158,25 +158,37 @@ async function flushDraft() {
         persistedVersion = version;
         $("draft-status").textContent = localPending() ? "Draft pending" : "Draft recovered";
         refreshStatus();
+        if (!drain) break;
     }
 }
 
-function scheduleDraft() {
-    clearTimeout(draftTimer);
-    draftTimer = setTimeout(() => enqueue(flushDraft).catch(showError), 300);
+async function flushChanges() {
+    do {
+        await flushDraft({ drain: false });
+        if (current.dirty) {
+            $("draft-status").textContent = "Saving...";
+            try {
+                current = await api("save", { path: current.path, revision: current.revision });
+            } catch (error) {
+                await flushDraft();
+                throw error;
+            }
+        }
+    } while (localPending());
+    saveFailed = false;
+    $("draft-status").textContent = "All changes saved";
+    $("notice").hidden = true;
+    refreshStatus();
+}
+
+function scheduleSave() {
+    if (saveQueued) return;
+    saveQueued = true;
+    enqueue(flushChanges).catch(showError).finally(() => { saveQueued = false; });
 }
 
 function save() {
-    return enqueue(async () => {
-        await flushDraft();
-        if (!current.dirty) return;
-        $("draft-status").textContent = "Saving...";
-        current = await api("save", { path: current.path, revision: current.revision });
-        $("draft-status").textContent = localPending() ? "Draft pending" : "All changes saved";
-        $("notice").hidden = true;
-        refreshStatus();
-        editor.focus();
-    }).catch(showError);
+    return enqueue(flushChanges).catch(showError);
 }
 
 function replaceDocument(snapshot) {
@@ -190,6 +202,7 @@ function replaceDocument(snapshot) {
         applying = false;
     }
     current = snapshot;
+    saveFailed = false;
     localVersion = persistedVersion = 0;
     renderPreview();
     updateCursor();
@@ -226,7 +239,7 @@ function createState(content) {
                         $("draft-status").textContent = "Draft pending";
                         clearTimeout(previewTimer);
                         previewTimer = setTimeout(renderPreview, 100);
-                        scheduleDraft();
+                        scheduleSave();
                         refreshStatus();
                     }
                     if (update.selectionSet || update.docChanged) updateCursor();
@@ -254,10 +267,12 @@ function showDocument() {
     renderPreview();
     updateCursor();
     refreshStatus();
+    if (current.dirty && !current.conflict) scheduleSave();
 }
 
 function loadDocument(snapshot) {
     current = snapshot;
+    saveFailed = false;
     localVersion = persistedVersion = 0;
     editor.setState(createState(snapshot.content));
     attachVim();
@@ -277,6 +292,7 @@ function switchTo(path, { focusEditor = true, fromServer = false } = {}) {
             blocked = false;
         } else {
             await flushDraft();
+            if (!current.conflict) await flushChanges();
         }
         loadDocument(await api("open", { path }));
         $("notice").hidden = true;
@@ -372,7 +388,6 @@ async function boot() {
     editor.focus();
     setupSidebar().catch(showError);
 
-    $("save-button").addEventListener("click", save);
     // In-document links (headings, footnotes) must not replace location.hash, which carries the API token.
     $("preview").addEventListener("click", (event) => {
         const link = event.target.closest?.('a[href^="#"]');
@@ -413,7 +428,6 @@ async function boot() {
     });
     $("reload-button").addEventListener("click", () => enqueue(async () => {
         if (!confirm("Discard the unsaved draft for this file and reload the disk version? This also affects other panels editing the same draft.")) return;
-        clearTimeout(draftTimer);
         editor.dispatch({ effects: editable.reconfigure(EditorView.editable.of(false)) });
         try {
             const latest = await api(documentUrl());
@@ -436,7 +450,7 @@ async function boot() {
     setInterval(() => {
         if (blocked || document.hidden) return;
         enqueue(async () => {
-            if (localPending()) await flushDraft();
+            if (localPending()) await flushChanges();
             const snapshot = await api(documentUrl());
             if (snapshot.activePath && snapshot.activePath !== current.path) {
                 await switchTo(snapshot.activePath, { focusEditor: false, fromServer: true });
@@ -446,6 +460,7 @@ async function boot() {
                 if (localPending()) throw Object.assign(new Error("The file or draft changed while you were typing. Your local text is preserved; copy it before reloading."), { code: "draft_conflict" });
                 replaceDocument(snapshot);
                 $("draft-status").textContent = snapshot.dirty ? "Draft recovered" : "All changes saved";
+                if (snapshot.dirty && !snapshot.conflict) scheduleSave();
             } else {
                 current = snapshot;
                 refreshStatus();
@@ -453,13 +468,13 @@ async function boot() {
         }).catch(showError);
     }, 2000);
     window.addEventListener("beforeunload", (event) => {
-        if (localPending()) {
+        if (localPending() || current.dirty) {
             event.preventDefault();
             event.returnValue = "";
         }
     });
     document.addEventListener("visibilitychange", () => {
-        if (document.hidden && localPending()) enqueue(flushDraft).catch(showError);
+        if (document.hidden && (localPending() || current.dirty)) save();
     });
 }
 

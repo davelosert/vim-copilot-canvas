@@ -29,15 +29,18 @@ The left sidebar lists folders and supported files below the root. Dotfiles and
 
 Click a file to preview it while staying in the explorer, double-click to edit
 it, click a folder to toggle it, and drag the sidebar edge to resize it.
-Switching files flushes the pending draft and starts a fresh undo history.
+Switching files flushes pending edits to disk and starts a fresh undo history.
+Conflicting drafts are preserved without overwriting disk changes.
 
 Agent actions: `open_file { path }`, `list_files { dir? }`, `get_document`, and
 `save`. The panel follows `open_file` within about two seconds.
 
 - `i`, `a`, `o`, Escape, motions, visual selection, text objects, search,
   registers, macros, undo, redo, and repeat use the library's Vim engine.
-- `:w` and Cmd/Ctrl+S explicitly save the file.
-- Drafts are persisted after a short debounce under `artifacts/drafts/`, keyed
+- Edits save to disk automatically, including while typing in insert mode.
+  Writes are serialized; edits made during a write are saved next without
+  moving focus. `:w` and Cmd/Ctrl+S can flush pending changes or retry a failure.
+- Recovery drafts are persisted before disk writes under `artifacts/drafts/`, keyed
   by canonical file path rather than panel ID. Keep that folder private: it
   contains document text, including the baseline used for conflict detection.
 - Panels in one provider share document state. Stale draft writes and detected
@@ -47,8 +50,9 @@ Agent actions: `open_file { path }`, `list_files { dir? }`, `get_document`, and
   This is not an OS-level compare-and-swap: an unrelated writer racing in the
   narrow check-to-rename interval cannot be excluded. Atomic replacement can
   also break hard-link relationships and does not preserve extended metadata.
-- Draft recovery survives iframe/provider reloads. In-flight keystrokes within
-  the debounce interval are not guaranteed to survive an abrupt process crash.
+- Draft recovery survives iframe/provider reloads. Recovered drafts are saved
+  automatically unless they conflict with disk changes. In-flight keystrokes
+  are not guaranteed to survive an abrupt process crash.
 - HTTP endpoints bind to loopback, validate Host/Origin, and require a random
   per-panel token for document operations. Frontend assets are bundled locally.
 - The preview renders GitHub-flavored Markdown: tables with column alignment,

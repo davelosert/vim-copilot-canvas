@@ -3,8 +3,8 @@
 A Markdown workspace with **Vim at your fingertips**.
 Make yourself at home: press `i`, change a line, then `Esc`.
 
-> Your words stay local. Drafts are recovered automatically.
-> Write to the file with `:w` or **Cmd/Ctrl + S**.
+> Your words stay local. Edits save to the file automatically.
+> Conflicting drafts are preserved rather than overwriting disk changes.
 
 ## Find your rhythm
 
@@ -21,7 +21,7 @@ Make yourself at home: press `i`, change a line, then `Esc`.
 
 - [x] Normal, insert, and visual modes
 - [x] Markdown source with a live preview
-- [x] Explicit, conflict-aware saving
+- [x] Automatic, conflict-aware saving
 - [ ] Write something worth keeping
 
 ## Leave a note
