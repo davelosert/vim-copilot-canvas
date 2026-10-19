@@ -148,3 +148,20 @@ npm test
 Browser tests use Playwright Chromium (`npx playwright install chromium` if
 it is not installed). Build assets are shipped alongside `extension.mjs`;
 reload extensions after changing provider code.
+
+### Continuous integration and merging
+
+GitHub Actions runs the **Tests** job on Ubuntu with Node.js 24 for every push to
+`main` and every pull request, regardless of target branch or changed files.
+It installs locked dependencies with `npm ci`, installs Chromium and its system
+dependencies with `npx playwright install --with-deps chromium`, builds the
+frontend, and runs `npm test` (store, settings, and browser tests).
+Use the same browser installation command when reproducing CI on Linux.
+
+The active `main` ruleset requires pull requests and a passing **Tests** check
+from GitHub Actions, with the PR branch up to date before merging. No approving
+review is required. Direct pushes, force pushes, and branch deletion are blocked.
+Repository administrators, including the owner, can bypass requirements only
+through a pull request; this intentionally allows admins to merge with failed
+or missing tests, but does not permit direct pushes. These rules are configured
+in GitHub repository settings, separately from the workflow file.
