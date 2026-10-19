@@ -38,7 +38,7 @@ export function editorTheme(name = "system", systemDark = false) {
     const colors = resolveTheme(name, systemDark);
     return [
         EditorView.theme({
-            "&": { color: colors.foreground, backgroundColor: colors.background },
+            "&": { color: colors.foreground, backgroundColor: colors.background, "--editor-cursor-color": colors.foreground, "--editor-cursor-text": colors.background },
             ".cm-content": { caretColor: colors.foreground },
             ".cm-gutters": { backgroundColor: colors.gutter, color: colors.muted, borderRight: "none" },
             ".cm-activeLineGutter, .cm-activeLine": { backgroundColor: colors.active },

@@ -38,11 +38,33 @@ const markerField = StateField.define({
     provide: (field) => EditorView.decorations.from(field),
 });
 
-function button(text, title, onClick) {
+const isMac = typeof navigator !== "undefined" &&
+    /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? "");
+const keys = isMac
+    ? { send: "⏎", mod: "⌘⏎", modShift: "⌘⇧⏎", newline: "⇧⏎", cancel: "Esc Esc" }
+    : { send: "Enter", mod: "Ctrl+Enter", modShift: "Ctrl+Shift+Enter", newline: "Shift+Enter", cancel: "Esc Esc" };
+const ariaKeys = { send: "Enter", mod: "Control+Enter Meta+Enter", modShift: "Control+Shift+Enter Meta+Shift+Enter" };
+
+function kbd(text) {
+    const element = document.createElement("kbd");
+    element.textContent = text;
+    return element;
+}
+
+function button(text, title, onClick, { shortcut, className } = {}) {
     const element = document.createElement("button");
     element.type = "button";
-    element.textContent = text;
     element.title = title;
+    if (className) element.className = className;
+    const label = document.createElement("span");
+    label.textContent = text;
+    element.append(label);
+    if (shortcut) {
+        const badge = kbd(keys[shortcut]);
+        badge.setAttribute("aria-hidden", "true");
+        element.append(badge);
+        if (ariaKeys[shortcut]) element.setAttribute("aria-keyshortcuts", ariaKeys[shortcut]);
+    }
     element.addEventListener("click", onClick);
     return element;
 }
@@ -141,20 +163,23 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
                     }
                 }
             };
-            const hint = document.createElement("span");
-            hint.textContent = reviewing
-                ? "↵ add to review · ⌃⇧↵ send review · ⇧↵ newline · Esc Esc cancel"
-                : "↵ send · ⌃↵ start review · ⇧↵ newline · Esc Esc cancel";
+            const hint = document.createElement("div");
+            hint.className = "agent-hint";
+            hint.append(kbd(keys.newline), " new line");
             if (reviewing) {
-                actions.append(hint,
-                    button("Add to review", "Enter or Ctrl+Enter", () => submit("review")),
-                    button(`Send review (${reviewCount()})`, "Ctrl+Shift+Enter: send all review comments, including this one", () => submit("send-review")));
+                actions.append(
+                    button("Add to review", `${keys.send} or ${keys.mod}`, () => submit("review"), { shortcut: "send", className: "primary" }),
+                    button(`Send review (${reviewCount()})`, `${keys.modShift}: send all review comments, including this one`, () => submit("send-review"), { shortcut: "modShift" }));
             } else {
-                actions.append(hint,
-                    button("Send to Agent", "Enter", () => submit("send")),
-                    button("Add to review", "Ctrl+Enter: collect comments and send them together", () => submit("review")));
+                actions.append(
+                    button("Send to Agent", keys.send, () => submit("send"), { shortcut: "send", className: "primary" }),
+                    button("Add to review", `${keys.mod}: collect comments and send them together`, () => submit("review"), { shortcut: "mod" }));
             }
-            actions.append(button("Cancel", "Esc in Normal mode", () => { if (!sending) close(); }));
+            const cancel = button("Cancel", `${keys.cancel} in Normal mode`, () => { if (!sending) close(); }, { className: "agent-cancel" });
+            const cancelKey = kbd(keys.cancel);
+            cancelKey.setAttribute("aria-hidden", "true");
+            cancel.append(cancelKey);
+            actions.append(cancel);
 
             form.addEventListener("keydown", (event) => {
                 if (event.target !== inner.contentDOM || event.isComposing) return;
@@ -176,7 +201,7 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
             }, true);
             // Keep panel keystrokes away from the surrounding editor's Vim handler.
             form.addEventListener("keydown", (event) => event.stopPropagation());
-            form.append(header, host, actions, status);
+            form.append(header, host, actions, hint, status);
             form.inner = inner;
             form.disposePrompt = () => { destroyed = true; prompts.delete(inner); inner.destroy(); };
             this.inner = inner;

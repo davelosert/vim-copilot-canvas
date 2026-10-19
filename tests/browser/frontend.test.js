@@ -149,6 +149,39 @@ describe("mounted frontend with real CodeMirror", () => {
         } finally { location.hash = oldHash; }
     });
 
+    it("shows a visible caret, three-line input and shortcut badges in the agent prompt", async () => {
+        const { app } = await fixture();
+        app.editor.focus();
+        await key("{Control>}i{/Control}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(1);
+        const prompt = document.querySelector(".agent-prompt");
+        const inner = prompt.querySelector(".agent-input .cm-editor");
+        await expect.poll(() => inner.classList.contains("cm-focused")).toBe(true);
+        // The outer editor is in Normal mode; its Vim styles must not hide the prompt's insert caret.
+        expect(document.querySelector("#editor .cm-scroller").classList.contains("cm-vimMode")).toBe(true);
+        const layer = inner.querySelector(".cm-cursorLayer:not(.cm-vimCursorLayer)");
+        expect(getComputedStyle(layer).display).not.toBe("none");
+        await expect.poll(() => layer.querySelector(".cm-cursor") && getComputedStyle(layer.querySelector(".cm-cursor")).display).toBe("block");
+        expect(getComputedStyle(layer).animationName).toMatch(/cm-blink/);
+
+        await key("{Escape}");
+        await expect.poll(() => inner.querySelector(".cm-fat-cursor")).toBeTruthy();
+        const fat = getComputedStyle(inner.querySelector(".cm-fat-cursor"));
+        expect(fat.backgroundColor).not.toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+        expect(fat.outlineStyle).toBe("none");
+
+        const content = inner.querySelector(".cm-content");
+        const lineHeight = parseFloat(getComputedStyle(content.querySelector(".cm-line")).lineHeight);
+        expect(content.getBoundingClientRect().height).toBeGreaterThanOrEqual(lineHeight * 3);
+
+        const send = [...prompt.querySelectorAll(".agent-actions button")].find((el) => el.textContent.startsWith("Send to Agent"));
+        expect(send.classList.contains("primary")).toBe(true);
+        expect(send.querySelector("kbd").textContent).toMatch(/⏎|Enter/);
+        expect(getComputedStyle(send.querySelector("kbd")).display).not.toBe("none");
+        expect(send.getAttribute("aria-keyshortcuts")).toBe("Enter");
+        expect(prompt.querySelector(".agent-hint kbd").textContent).toMatch(/⇧⏎|Shift\+Enter/);
+    });
+
     it("uses frozen selection context and prompt-local keyboard priority, with failed-send retry", async () => {
         const { app, api } = await fixture();
         app.editor.view.dispatch({ selection: { anchor: 9, head: 14 } });
