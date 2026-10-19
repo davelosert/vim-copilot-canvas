@@ -187,6 +187,48 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
         await page.locator(".cm-content").click();
     });
 
+    await t.test("collapsing and reopening the explorer preserves workspace geometry", async () => {
+        for (const width of [1200, 701, 700, 480]) {
+            await page.setViewportSize({ width, height: 820 });
+            for (const layout of ["edit", "split", "preview"]) {
+                await page.locator(`button[data-layout="${layout}"]`).click();
+                for (const open of [false, true, false]) {
+                    if (await page.locator("#toggle-explorer").getAttribute("aria-pressed") !== String(open)) {
+                        await page.locator("#toggle-explorer").click();
+                    }
+                    await until(async () => {
+                        const bounds = await page.evaluate(() => {
+                            const rect = (selector) => {
+                                const { x, y, width, height } = document.querySelector(selector).getBoundingClientRect();
+                                return { x, y, width, height };
+                            };
+                            return {
+                                shell: rect("#shell"), workspace: rect("#workspace"),
+                                explorer: rect("#explorer"), handle: rect("#resize-explorer"),
+                                editor: rect(".editor-pane"), preview: rect(".preview-pane"),
+                            };
+                        });
+                        const context = `${width}px, ${layout}, explorer ${open ? "open" : "closed"}`;
+                        const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1,
+                            `${context}: expected ${expected}, got ${actual}`);
+                        const inset = open && width > 700 ? bounds.explorer.width + bounds.handle.width : 0;
+                        close(bounds.workspace.x, bounds.shell.x + inset);
+                        close(bounds.workspace.y, bounds.shell.y);
+                        close(bounds.workspace.width, bounds.shell.width - inset);
+                        close(bounds.workspace.height, bounds.shell.height);
+                        for (const pane of layout === "split" ? ["editor", "preview"] : [layout === "edit" ? "editor" : "preview"]) {
+                            close(bounds[pane].width, bounds.workspace.width / (layout === "split" && width > 700 ? 2 : 1));
+                            close(bounds[pane].height, bounds.workspace.height / (layout === "split" && width <= 700 ? 2 : 1));
+                        }
+                    });
+                }
+            }
+        }
+        await page.setViewportSize({ width: 1200, height: 820 });
+        await page.locator('button[data-layout="split"]').click();
+        await page.locator("#toggle-explorer").click();
+    });
+
     await t.test("sanitized preview, responsive layouts, theme and shortcuts", async () => {
         const snapshot = await state();
         await store.update(document, '# Safe\n\n<script>window.pwned = true</script>\n\n<img src="https://example.com/tracker.png" onerror="window.pwned=true">\n\n<svg onload="window.pwned=true"><script>window.pwned=true</script></svg>\n\n[unsafe](javascript:alert(1))\n\n[external](https://example.com)\n', snapshot.revision);
