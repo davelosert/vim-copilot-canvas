@@ -74,14 +74,14 @@ test("reload refuses a stale disk hash", async () => {
     await assert.rejects(store.reload(document, state.revision, state.diskHash), { code: "disk_conflict" });
 });
 
-test("UTF-8, CRLF, file modes and literal trailing newlines are retained", async () => {
+test("UTF-8, CRLF and literal trailing newlines are retained; file modes are retained on POSIX", async () => {
     const { path, store, document } = await fixture("# Café\r\n\r\nGrüße\r\n");
-    await chmod(path, 0o640);
+    if (process.platform !== "win32") await chmod(path, 0o640);
     const content = "# Café\r\n\r\nGrüße, Welt\r\n";
     const draft = await store.update(document, content, document.revision);
     await store.save(document, draft.revision);
     assert.equal(await readFile(path, "utf8"), content);
-    assert.equal((await stat(path)).mode & 0o777, 0o640);
+    if (process.platform !== "win32") assert.equal((await stat(path)).mode & 0o777, 0o640);
 });
 
 test("unsupported files and content are rejected explicitly", async () => {
