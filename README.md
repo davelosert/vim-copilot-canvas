@@ -1,23 +1,31 @@
 # Vim Markdown canvas
 
 A user-scoped Copilot canvas using CodeMirror 6, `@replit/codemirror-vim`,
-Markdown language support, and a sanitized live preview. This is not Neovim:
+filename-based syntax highlighting via `@codemirror/language-data`, and a
+sanitized live preview for Markdown. This is not Neovim:
 Lua configuration and Neovim plugins are not loaded.
 
 Open the `vim-markdown` canvas without input to browse the session's working
-directory (its README/index or first Markdown file opens first); if the session
-has no working directory or it contains no Markdown files, the editable welcome
+directory (its Markdown README/index or first supported text file opens first); if the session
+has no working directory or it contains no supported text files, the editable welcome
 document opens instead. Alternatively pass `{ "filePath": "/abs/doc.md" }`
 and/or `{ "rootPath": "/abs/folder" }`.
 Without `rootPath`, the explorer root is the file's nearest Git repository
 (stopping at your home directory) or its folder. With only `rootPath`, a README
-or index file is opened first. Existing `.md`, `.markdown`, `.mdown`, and `.txt`
-files up to 2 MiB are supported. Source/preview layout adapts to narrow panels.
+or index Markdown file is preferred. Existing UTF-8 text files of any extension
+(or no extension) up to 2 MiB are supported; binary and non-UTF-8 files are rejected.
+Languages are detected from filenames and loaded locally on demand. Unrecognized
+files use plain text. Markdown (`.md`, `.markdown`, `.mdown`) keeps its Edit/Split/Preview
+controls, live rendering, and word count; other files use the full editor pane
+without preview controls. Returning to Markdown restores the selected layout.
+Source/preview layout adapts to narrow panels.
 
 ## File explorer
 
-The left sidebar lists folders and supported files below the root. Dotfiles and
-`node_modules` are hidden, and symlinks or paths leaving the root are refused.
+The left sidebar lists all folders and files below the root, including dotfiles,
+`.git`, `node_modules`, and binary files (which cannot be opened in the editor).
+The first document opened automatically skips dotfiles and `node_modules`.
+Symlinks or paths leaving the root are refused.
 
 | Keys | Action |
 | --- | --- |

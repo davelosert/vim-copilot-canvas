@@ -95,12 +95,36 @@ test("UTF-8, CRLF, file modes and literal trailing newlines are retained", async
 test("unsupported files and content are rejected explicitly", async (t) => {
     const { path, store, document, root } = await fixture(t);
     await assert.rejects(store.open("relative.md"), { code: "absolute_path_required" });
-    const other = join(root, "note.js");
-    await writeFile(other, "hello");
-    await assert.rejects(store.open(other), { code: "unsupported_extension" });
+    const other = join(root, "image.png");
+    await writeFile(other, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    await assert.rejects(store.open(other), { code: "unsupported_encoding" });
+    await writeFile(other, Buffer.from([0x61, 0, 0x62]));
+    await assert.rejects(store.open(other), { code: "unsupported_file" });
+    await writeFile(other, "a".repeat(2 * 1024 * 1024 + 1));
+    await assert.rejects(store.open(other), { code: "unsupported_file" });
+    await assert.rejects(store.open(root), { code: "unsupported_file" });
     await assert.rejects(store.update(document, "a".repeat(2 * 1024 * 1024 + 1), document.revision), { code: "invalid_content" });
     await writeFile(path, Buffer.from([0xff, 0xfe, 0x61]));
     await assert.rejects(store.snapshot(document), { code: "unsupported_encoding" });
+});
+
+test("arbitrary text formats retain saving, draft recovery and conflict protection", async (t) => {
+    const { root, artifacts, store } = await fixture(t);
+    for (const name of ["script.js", "config.yaml", "data.json", "Makefile", "custom.unknown", ".gitignore"]) {
+        const path = join(root, name);
+        await writeFile(path, "original\r\n");
+        const document = await store.open(path);
+        const draft = await store.update(document, "edited\r\n", document.revision);
+        const reopened = new DocumentStore(artifacts);
+        const recovered = await reopened.open(path);
+        assert.equal((await reopened.snapshot(recovered)).content, "edited\r\n");
+        await reopened.save(recovered, draft.revision);
+        assert.equal(await readFile(path, "utf8"), "edited\r\n");
+        const next = await reopened.update(recovered, "local\r\n", recovered.revision);
+        await writeFile(path, "external\r\n");
+        await assert.rejects(reopened.save(recovered, next.revision), { code: "disk_conflict" });
+        assert.equal(await readFile(path, "utf8"), "external\r\n");
+    }
 });
 
 test("HTTP endpoints require token and same origin; assets are local", async (t) => {
@@ -289,7 +313,7 @@ test("workspace and tree/open endpoints stay inside the root", async (t) => {
     await symlink(join(base, "outside.md"), join(rootDir, "escape.md"));
     const workspace = await Workspace.create({ rootPath: rootDir });
     const listing = await workspace.list();
-    assert.deepEqual(listing.entries.map((e) => e.name), ["deep", "b2.md", "b10.md", "README.md"]);
+    assert.deepEqual(listing.entries.map((e) => e.name), ["deep", "node_modules", ".hidden.md", "b2.md", "b10.md", "README.md", "script.js"]);
     assert.equal(await workspace.firstDocument(), join(rootDir, "README.md"));
     await assert.rejects(workspace.resolve(join(base, "outside.md")), { code: "outside_root" });
     await assert.rejects(workspace.resolve("../outside.md"), { code: "outside_root" });
@@ -317,6 +341,32 @@ test("workspace and tree/open endpoints stay inside the root", async (t) => {
     assert.equal((await call("draft", { path: join(base, "outside.md"), revision: 0, content: "x" })).status, 403);
     const readme = await (await call(`document?path=${encodeURIComponent(join(rootDir, "README.md"))}`)).json();
     assert.equal(readme.content, "# Root\n");
+    const script = await (await call("open", { path: "script.js" })).json();
+    assert.equal(script.content, "x");
+    assert.equal(script.activePath, join(rootDir, "script.js"));
+    await writeFile(join(rootDir, "binary.bin"), Buffer.from([0, 1, 2]));
+    assert.equal((await call("open", { path: "binary.bin" })).status, 400);
+    assert.equal((await (await call("document")).json()).path, script.path);
+});
+
+test("initial selection skips binary, oversized and non-UTF-8 files", async (t) => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "vim-markdown-formats-")));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await writeFile(join(root, "a.bin"), Buffer.from([0, 1, 2]));
+    await writeFile(join(root, "b.bin"), Buffer.from([0xff, 0xfe]));
+    await writeFile(join(root, "c.log"), "a".repeat(2 * 1024 * 1024 + 1));
+    assert.equal(await resolveInitialTarget({ workingDirectory: root }), null);
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "main.py"), "print('hello')\n");
+    assert.equal((await resolveInitialTarget({ workingDirectory: root })).path, join(root, "src", "main.py"));
+    await writeFile(join(root, "Makefile"), "all:\n\techo hello\n");
+    assert.equal((await resolveInitialTarget({ workingDirectory: root })).path, join(root, "Makefile"));
+    await writeFile(join(root, "README.md"), "# Hello\n");
+    assert.equal((await resolveInitialTarget({ workingDirectory: root })).path, join(root, "README.md"));
+    await mkdir(join(root, "nested"));
+    await writeFile(join(root, "nested", ".env"), "A=1\n");
+    await writeFile(join(root, "nested", "app.ts"), "export {};\n");
+    assert.equal(await (await Workspace.create({ rootPath: join(root, "nested") })).firstDocument(), join(root, "nested", "app.ts"));
 });
 
 test("initial target defaults to the session working directory", async (t) => {

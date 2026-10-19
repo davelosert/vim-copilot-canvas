@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, realpath, stat, open, rename, unlink } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const hash = (text) => createHash("sha256").update(text).digest("hex");
@@ -32,7 +32,7 @@ export async function atomicWrite(path, content, mode = 0o600) {
     }
 }
 
-async function diskText(path) {
+export async function diskText(path) {
     const info = await stat(path);
     if (!info.isFile() || info.size > MAX_BYTES) {
         throw new EditorError("unsupported_file", "Choose a text file smaller than 2 MiB.", 400);
@@ -75,9 +75,6 @@ export class DocumentStore {
         }
         if (!isAbsolute(filePath)) throw new EditorError("absolute_path_required", "Provide an absolute file path.", 400);
         const path = await realpath(filePath);
-        if (![".md", ".markdown", ".mdown", ".txt"].includes(extname(path).toLowerCase())) {
-            throw new EditorError("unsupported_extension", "Open a .md, .markdown, .mdown, or .txt file.", 400);
-        }
         return this.locked({ path }, async () => {
             if (this.documents.has(path)) return this.documents.get(path);
             const baseContent = await diskText(path);

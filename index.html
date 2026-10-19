@@ -12,7 +12,7 @@
     <div class="identity"><button id="toggle-explorer" class="icon-button" aria-pressed="true" aria-controls="explorer" title="Toggle file explorer (:Lex)" aria-label="Toggle file explorer"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor"/><path d="M6 2.5v11" stroke="currentColor"/></svg></button><span class="logo" aria-hidden="true">V<span>m</span></span><div class="file-info"><strong id="filename">Vim Markdown</strong><span id="filepath">Opening document...</span></div></div>
     <div class="controls">
       <button id="help-button" aria-label="Show Vim keyboard shortcuts" title="Keyboard shortcuts">?</button>
-      <div class="view-switch" role="group" aria-label="Editor layout">
+      <div id="layout-controls" class="view-switch" role="group" aria-label="Editor layout">
         <button data-layout="edit" aria-pressed="false">Edit</button>
         <button data-layout="split" aria-pressed="true">Split</button>
         <button data-layout="preview" aria-pressed="false">Preview</button>
@@ -24,12 +24,12 @@
   <div id="shell" data-sidebar="open">
   <aside id="explorer" aria-label="File explorer">
     <div class="pane-label explorer-label"><span id="explorer-root" class="explorer-root">FILES</span><span class="explorer-actions"><button id="collapse-tree" class="mini" title="Collapse all" aria-label="Collapse all folders">⊟</button><button id="refresh-tree" class="mini" title="Refresh (R)" aria-label="Refresh file tree">↻</button></span></div>
-    <div id="tree" role="tree" tabindex="0" aria-label="Markdown files"></div>
+    <div id="tree" role="tree" tabindex="0" aria-label="Files"></div>
     <div class="explorer-hint"><kbd>j</kbd><kbd>k</kbd> move · <kbd>l</kbd> open · <kbd>h</kbd> close · <kbd>⌃w l</kbd> editor</div>
   </aside>
   <div id="resize-explorer" role="separator" aria-orientation="vertical" aria-label="Resize file explorer"></div>
   <main id="workspace" data-layout="split">
-    <section class="editor-pane" aria-label="Markdown source"><div class="pane-label"><span>MARKDOWN</span><span id="draft-status">Opening...</span></div><div id="editor"></div></section>
+    <section class="editor-pane" aria-label="File source"><div class="pane-label"><span id="source-label">MARKDOWN</span><span id="draft-status">Opening...</span></div><div id="editor"></div></section>
     <section class="preview-pane" aria-label="Markdown preview"><div class="pane-label"><span>PREVIEW</span><span>Live rendering</span></div><article id="preview"></article></section>
   </main>
   </div>
@@ -37,10 +37,10 @@
     <div class="review-bar"><button id="review-toggle" class="review-toggle" type="button" aria-expanded="false" aria-controls="review-list"><span id="review-count">Review</span></button><span class="review-actions"><button id="review-discard" type="button" title="Discard all pending comments (:AgentDiscard)">Discard</button><button id="review-send" class="primary" type="button" title="Send all comments in one message (Ctrl+Shift+Enter or :AgentSend)">Send review</button></span></div>
     <ol id="review-list" class="review-list" hidden></ol>
   </section>
-  <footer class="statusbar"><div><span id="mode" class="mode">NORMAL</span><span id="save-status">Loading</span><span id="agent-status" role="status" aria-live="polite"></span></div><div><span id="words">0 words</span><span id="cursor">Ln 1, Col 1</span><span class="filetype">Markdown</span></div></footer>
+  <footer class="statusbar"><div><span id="mode" class="mode">NORMAL</span><span id="save-status">Loading</span><span id="agent-status" role="status" aria-live="polite"></span></div><div><span id="words">0 words</span><span id="cursor">Ln 1, Col 1</span><span id="filetype" class="filetype">Markdown</span></div></footer>
   <dialog id="help">
     <div class="dialog-heading"><div><span class="eyebrow">KEYBOARD FIRST</span><h1>Your familiar motions.</h1></div><button id="close-help" aria-label="Close shortcuts">×</button></div>
-    <p>A Markdown editor with Vim controls. Powered by CodeMirror, not a Neovim process.</p>
+    <p>A text editor with Vim controls and a live preview for Markdown. Powered by CodeMirror, not a Neovim process.</p>
     <div class="shortcut-grid">
       <kbd>h j k l</kbd><span>Move the cursor</span><kbd>w b e</kbd><span>Move between words</span>
       <kbd>i / a / o</kbd><span>Enter insert mode</span><kbd>Esc / Ctrl+[</kbd><span>Return to normal mode</span>

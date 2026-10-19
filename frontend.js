@@ -2,6 +2,8 @@ import { basicSetup } from "codemirror";
 import { EditorState, Compartment } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
+import { LanguageDescription } from "@codemirror/language";
+import { languages } from "@codemirror/language-data";
 import { vim, Vim, getCM } from "@replit/codemirror-vim";
 import { Marked } from "marked";
 import markedAlert from "marked-alert";
@@ -60,6 +62,9 @@ const token = location.hash.slice(1);
 const theme = new Compartment();
 const lineBreaks = new Compartment();
 const editable = new Compartment();
+const language = new Compartment();
+let languageRequest = 0;
+let markdownLayout = "split";
 let editor;
 let current;
 let localVersion = 0;
@@ -126,6 +131,34 @@ function enqueue(operation) {
 
 const text = () => editor.state.sliceDoc();
 const localPending = () => localVersion !== persistedVersion;
+const isMarkdown = () => /\.(md|markdown|mdown)$/i.test(current.name);
+
+function applyLayout() {
+    const layout = isMarkdown() ? markdownLayout : "edit";
+    $("workspace").dataset.layout = layout;
+    for (const button of document.querySelectorAll("button[data-layout]")) {
+        button.setAttribute("aria-pressed", String(button.dataset.layout === layout));
+    }
+    editor.requestMeasure();
+}
+
+async function configureLanguage() {
+    const request = ++languageRequest;
+    const description = LanguageDescription.matchFilename(languages, current.name);
+    const name = isMarkdown() ? "Markdown" : description?.name ?? "Plain text";
+    $("source-label").textContent = name.toUpperCase();
+    $("filetype").textContent = name;
+    $("layout-controls").hidden = !isMarkdown();
+    $("words").hidden = !isMarkdown();
+    applyLayout();
+    if (isMarkdown() || !description) return;
+    try {
+        const support = await description.load();
+        if (request === languageRequest) editor.dispatch({ effects: language.reconfigure(support) });
+    } catch (error) {
+        if (request === languageRequest) showError(new Error(`Could not load ${name} highlighting: ${error.message}`));
+    }
+}
 
 function refreshStatus() {
     if (!current) return;
@@ -139,6 +172,10 @@ function refreshStatus() {
 }
 
 function renderPreview() {
+    if (!isMarkdown()) {
+        $("preview").replaceChildren();
+        return;
+    }
     const source = text();
     const clean = filterXSS(markdownRenderer.parse(source), previewSanitizer);
     $("preview").innerHTML = clean;
@@ -246,17 +283,19 @@ function createState(content) {
     return EditorState.create({
             doc: content,
             extensions: [
-                vim(), basicSetup, markdown(), EditorView.lineWrapping, agent.extensions,
+                vim(), basicSetup,
+                language.of(isMarkdown() ? markdown({ codeLanguages: languages }) : []),
+                EditorView.lineWrapping, agent.extensions,
                 lineBreaks.of(EditorState.lineSeparator.of(content.includes("\r\n") ? "\r\n" : "\n")),
                 theme.of(editorTheme()), editable.of(EditorView.editable.of(true)),
-                EditorView.contentAttributes.of({ "aria-label": "Markdown editor", spellcheck: "false" }),
+                EditorView.contentAttributes.of({ "aria-label": "Text editor", spellcheck: "false" }),
                 keymap.of([{ key: "Mod-s", preventDefault: true, run: () => { save(); return true; } }]),
                 EditorView.updateListener.of((update) => {
                     if (update.docChanged && !applying) {
                         localVersion++;
                         $("draft-status").textContent = "Draft pending";
                         clearTimeout(previewTimer);
-                        previewTimer = setTimeout(renderPreview, 100);
+                        if (isMarkdown()) previewTimer = setTimeout(renderPreview, 100);
                         scheduleSave();
                         refreshStatus();
                     }
@@ -278,6 +317,8 @@ function attachVim() {
 }
 
 function showDocument() {
+    clearTimeout(previewTimer);
+    configureLanguage();
     $("filepath").textContent = current.path;
     $("filepath").title = current.path;
     document.title = `${current.name} · Vim Markdown`;
@@ -522,10 +563,9 @@ async function boot() {
     for (const button of document.querySelectorAll("[data-layout]")) {
         if (button.tagName !== "BUTTON") continue;
         button.addEventListener("click", () => {
-            $("workspace").dataset.layout = button.dataset.layout;
-            for (const other of document.querySelectorAll("button[data-layout]")) {
-                other.setAttribute("aria-pressed", String(other === button));
-            }
+            if (!isMarkdown()) return;
+            markdownLayout = button.dataset.layout;
+            applyLayout();
             if (button.dataset.layout !== "preview") editor.focus();
             editor.requestMeasure();
         });
