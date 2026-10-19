@@ -3,31 +3,42 @@ import { EditorState, Compartment } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import { vim, Vim, getCM } from "@replit/codemirror-vim";
-import { marked } from "marked";
+import { Marked } from "marked";
+import markedAlert from "marked-alert";
+import markedFootnote from "marked-footnote";
+import { gfmHeadingId } from "marked-gfm-heading-id";
 import filterXSS from "xss";
 import { createExplorer } from "./explorer.js";
 
 const $ = (id) => document.getElementById(id);
+const heading = ["id", "class"];
 const previewTags = {
-    a: ["href", "title"],
+    a: ["href", "title", "id", "aria-describedby", "aria-label", "data-footnote-ref", "data-footnote-backref"],
     blockquote: [],
     br: [],
     code: [],
     del: [],
+    details: ["open"],
+    div: ["class"],
     em: [],
-    h1: [],
-    h2: [],
-    h3: [],
-    h4: [],
-    h5: [],
-    h6: [],
+    h1: heading,
+    h2: heading,
+    h3: heading,
+    h4: heading,
+    h5: heading,
+    h6: heading,
     hr: [],
     input: ["type", "checked", "disabled"],
-    li: [],
+    kbd: [],
+    li: ["id"],
     ol: ["start"],
-    p: [],
+    p: ["class"],
     pre: [],
+    section: ["class", "data-footnotes"],
     strong: [],
+    sub: [],
+    summary: [],
+    sup: [],
     table: [],
     tbody: [],
     td: ["align", "colspan", "rowspan"],
@@ -41,6 +52,8 @@ const previewSanitizer = {
     stripIgnoreTag: true,
     stripIgnoreTagBody: ["script", "style", "iframe", "object", "embed", "form", "audio", "video"],
     css: false,
+    // Prefixes ids like GitHub ("user-content-") so headings/footnotes cannot clobber DOM globals.
+    onTagAttr: (tag, name, value, isWhiteAttr) => isWhiteAttr && name === "id" ? `id="user-content-${filterXSS.escapeAttrValue(value)}"` : undefined,
 };
 const token = location.hash.slice(1);
 const theme = new Compartment();
@@ -56,6 +69,11 @@ let draftTimer;
 let previewTimer;
 let operations = Promise.resolve();
 let explorer;
+
+const markdownRenderer = new Marked({ gfm: true, breaks: false })
+    .use(gfmHeadingId())
+    .use(markedAlert())
+    .use(markedFootnote());
 
 async function api(path, input) {
     const response = await fetch(`/api/${path}`, {
@@ -104,7 +122,7 @@ function refreshStatus() {
 
 function renderPreview() {
     const source = text();
-    const clean = filterXSS(marked.parse(source, { gfm: true, breaks: false }), previewSanitizer);
+    const clean = filterXSS(markdownRenderer.parse(source), previewSanitizer);
     $("preview").innerHTML = clean;
     for (const link of $("preview").querySelectorAll("a")) {
         const href = link.getAttribute("href") ?? "";
@@ -355,6 +373,16 @@ async function boot() {
     setupSidebar().catch(showError);
 
     $("save-button").addEventListener("click", save);
+    // In-document links (headings, footnotes) must not replace location.hash, which carries the API token.
+    $("preview").addEventListener("click", (event) => {
+        const link = event.target.closest?.('a[href^="#"]');
+        if (!link) return;
+        event.preventDefault();
+        let id = link.getAttribute("href").slice(1);
+        try { id = decodeURIComponent(id); } catch {}
+        const target = id && $("preview").querySelector(`[id="user-content-${CSS.escape(id)}"]`);
+        target?.scrollIntoView({ block: "start" });
+    });
     document.addEventListener("keydown", (event) => {
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
             event.preventDefault();

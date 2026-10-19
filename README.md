@@ -51,6 +51,10 @@ Agent actions: `open_file { path }`, `list_files { dir? }`, `get_document`, and
   the debounce interval are not guaranteed to survive an abrupt process crash.
 - HTTP endpoints bind to loopback, validate Host/Origin, and require a random
   per-panel token for document operations. Frontend assets are bundled locally.
+- The preview renders GitHub-flavored Markdown: tables with column alignment,
+  task lists, strikethrough, autolinks, alerts (`> [!NOTE]` etc.), footnotes,
+  and heading anchors. Like GitHub, element ids get a `user-content-` prefix and
+  GFM's disallowed raw HTML tags are filtered.
 - Preview HTML is sanitized, scripts and remote images are disabled, and only
   explicit HTTP(S) links open externally.
 

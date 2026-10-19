@@ -212,6 +212,38 @@ test("browser: Vim editing, preview, saving, recovery, conflicts and layouts", {
         assert.equal(await page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches), true);
     });
 
+    await t.test("GitHub-flavored Markdown preview", async () => {
+        const snapshot = await state();
+        await page.setViewportSize({ width: 1200, height: 820 });
+        const gfm = [
+            "# Title", "", "## Section Two", "",
+            "- [x] done", "- [ ] todo", "",
+            "~~gone~~ www.example.com", "",
+            "| L | C | R |", "|:--|:-:|--:|", "| 1 | 2 | 3 |", "",
+            "> [!WARNING]", "> Careful.", "",
+            "See note[^1] and [jump](#section-two).", "",
+            "[^1]: The footnote.", "",
+            "<textarea>raw</textarea>", "",
+        ].join("\n");
+        await store.update(document, gfm, snapshot.revision);
+        const preview = page.locator("#preview");
+        await until(async () => assert.equal(await preview.locator("h1").innerText(), "Title"));
+        assert.equal(await preview.locator("h1").getAttribute("id"), "user-content-title");
+        assert.equal(await preview.locator('input[type="checkbox"][disabled]').count(), 2);
+        assert.equal(await preview.locator('input[type="checkbox"]:checked').count(), 1);
+        assert.equal(await preview.locator("del").innerText(), "gone");
+        assert.equal(await preview.locator('a[href="http://www.example.com"]').count(), 1);
+        assert.equal(await preview.locator("td").nth(1).evaluate((cell) => getComputedStyle(cell).textAlign), "center");
+        assert.equal(await preview.locator("td").nth(2).evaluate((cell) => getComputedStyle(cell).textAlign), "right");
+        assert.equal(await preview.locator(".markdown-alert-warning .markdown-alert-title").innerText(), "Warning");
+        assert.equal(await preview.locator("section.footnotes li").count(), 1);
+        assert.match(await preview.locator("section.footnotes").innerText(), /The footnote\./);
+        assert.equal(await preview.locator("textarea").count(), 0);
+        const hash = await page.evaluate(() => location.hash);
+        await preview.locator('a[href="#section-two"]').click();
+        assert.equal(await page.evaluate(() => location.hash), hash);
+    });
+
     await t.test("CRLF and Unicode survive actual editor changes", async () => {
         const snapshot = await state();
         await store.reload(document, snapshot.revision, snapshot.diskHash);
