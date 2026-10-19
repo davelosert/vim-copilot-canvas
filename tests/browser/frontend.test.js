@@ -13,6 +13,14 @@ const mounted = [];
 afterEach(() => {
     for (const app of mounted.splice(0)) app.dispose();
     document.body.replaceChildren();
+    delete document.documentElement.dataset.canvasTheme;
+    delete document.documentElement.dataset.colorMode;
+    for (const property of ["--editor-accent", "--editor-accent-contrast", "--editor-surface", "--editor-page",
+        "--editor-canvas", "--editor-text", "--editor-muted", "--editor-border", "--editor-soft",
+        "--editor-selection", "--editor-success", "--editor-warning", "--editor-danger", "--editor-important",
+        "--tree-folder-color", "--tree-markdown-color"]) {
+        document.documentElement.style.removeProperty(property);
+    }
     vi.restoreAllMocks();
 });
 
@@ -88,6 +96,33 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    it("applies the selected editor theme to the full canvas and follows system mode", async () => {
+        document.documentElement.dataset.colorMode = "dark";
+        await fixture();
+        expect(document.documentElement.dataset.canvasTheme).toBe("dark");
+        expect(getComputedStyle(document.documentElement).getPropertyValue("--editor-canvas").trim()).toBe("#0d1117");
+        expect(getComputedStyle(document.documentElement).getPropertyValue("--editor-accent").trim()).toBe("#79c0ff");
+
+        await userEvent.click($("settings-button"));
+        await userEvent.selectOptions($("editor-theme"), "dracula");
+        await expect.poll(() => getComputedStyle(document.documentElement).getPropertyValue("--editor-canvas").trim()).toBe("#282a36");
+        expect(document.documentElement.dataset.canvasTheme).toBe("dark");
+        expect(getComputedStyle(document.documentElement).getPropertyValue("--editor-accent").trim()).toBe("#8be9fd");
+
+        await userEvent.selectOptions($("editor-theme"), "solarized-light");
+        await expect.poll(() => getComputedStyle(document.documentElement).getPropertyValue("--editor-canvas").trim()).toBe("#fdf6e3");
+        expect(document.documentElement.dataset.canvasTheme).toBe("light");
+        expect(getComputedStyle(document.documentElement).getPropertyValue("--editor-accent").trim()).toBe("#268bd2");
+
+        await userEvent.selectOptions($("editor-theme"), "system");
+        await expect.poll(() => getComputedStyle(document.documentElement).getPropertyValue("--editor-canvas").trim()).toBe("#0d1117");
+        expect(document.documentElement.dataset.canvasTheme).toBe("dark");
+        document.documentElement.dataset.colorMode = "light";
+        await expect.poll(() => document.documentElement.dataset.canvasTheme).toBe("light");
+        expect(getComputedStyle(document.documentElement).getPropertyValue("--editor-canvas").trim()).toBe("#ffffff");
+        expect(getComputedStyle(document.documentElement).getPropertyValue("--editor-accent").trim()).toBe("#0550ae");
+    });
+
     it("edits through Vim, autosaves, reports cursor/mode and preserves settings without rebuilding state", async () => {
         const { app, api } = await fixture();
         expect($("preview").querySelector("h1").textContent).toBe("Title");

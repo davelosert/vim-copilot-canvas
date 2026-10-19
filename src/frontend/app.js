@@ -52,6 +52,31 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         onMode: (mode, subMode) => shell.mode(mode, subMode),
         onLanguage: (name, markdown) => shell.language(name, markdown), onError: report,
     });
+    const applyShellTheme = () => {
+        const { colors, dark, accent, accentContrast } = editor.themePalette();
+        const values = {
+            "--editor-accent": accent,
+            "--editor-accent-contrast": accentContrast,
+            "--editor-surface": colors.gutter,
+            "--editor-page": colors.gutter,
+            "--editor-canvas": colors.background,
+            "--editor-text": colors.foreground,
+            "--editor-muted": colors.muted,
+            "--editor-border": `color-mix(in srgb, ${colors.muted} 28%, ${colors.gutter})`,
+            "--editor-soft": colors.active,
+            "--editor-selection": colors.selection,
+            "--editor-success": colors.quote,
+            "--editor-warning": colors.constant,
+            "--editor-danger": colors.invalid,
+            "--editor-important": colors.entity,
+            "--tree-folder-color": colors.constant,
+            "--tree-markdown-color": colors.entity,
+        };
+        for (const [property, value] of Object.entries(values)) {
+            doc.documentElement.style.setProperty(property, value);
+        }
+        doc.documentElement.dataset.canvasTheme = dark ? "dark" : "light";
+    };
     const open = async (path, { focusEditor = true } = {}) => {
         let opened = await controller.open(path);
         // Ask only after the queued operation observes the conflict, not from a stale UI snapshot.
@@ -103,7 +128,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     });
     const preferences = createSettings({
         elements: elements({ dialog: "settings", button: "settings-button", close: "close-settings", relative: "relative-line-numbers", theme: "editor-theme", status: "settings-status" }),
-        api, onSettings: (value) => editor.applySettings(value),
+        api, onSettings: (value) => { editor.applySettings(value); applyShellTheme(); },
     });
     controller = createDocumentController({
         api: {
@@ -132,7 +157,13 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     });
     listen($("refresh-tree"), "click", () => explorer.refresh());
     listen($("collapse-tree"), "click", () => explorer.collapseAll());
-    const updateTheme = () => { if (!disposed) editor.updateTheme(systemDark()); };
+    const updateTheme = () => {
+        if (disposed) return;
+        const dark = systemDark();
+        editor.updateTheme(dark);
+        applyShellTheme();
+    };
+    updateTheme();
     const observer = new win.MutationObserver(updateTheme);
     for (const node of [doc.documentElement, doc.body]) {
         observer.observe(node, { attributes: true, attributeFilter: ["data-color-mode", "data-dark-theme", "data-light-theme"] });

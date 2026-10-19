@@ -5,7 +5,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { LanguageDescription } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { vim, getCM } from "@replit/codemirror-vim";
-import { editorTheme } from "./theme.js";
+import { editorTheme, editorThemePalette } from "./theme.js";
 import { isMarkdown } from "./markdown.js";
 
 export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor, onMode, onLanguage, onError, systemDark = false }) {
@@ -75,6 +75,7 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
         get view() { return view; },
         readText: () => view?.state.sliceDoc() ?? "",
         currentTheme,
+        themePalette: () => editorThemePalette(settings.theme, systemDark),
         applyDocument(snapshot, { kind }) {
             if (disposed) return;
             applying = true;
