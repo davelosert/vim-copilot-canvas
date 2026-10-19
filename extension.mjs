@@ -19,7 +19,7 @@ await joinSession({
     canvases: [createCanvas({
         id: "vim-markdown",
         displayName: "Vim Markdown",
-        description: "Edit Markdown files with Vim keybindings, a Vim-navigable file explorer, live preview, and conflict-aware saves.",
+        description: "Edit UTF-8 text files with Vim keybindings, syntax highlighting, a file explorer, conflict-aware saves, and a live preview for Markdown.",
         inputSchema: {
             type: "object",
             properties: {
@@ -58,7 +58,7 @@ await joinSession({
             },
             {
                 name: "list_files",
-                description: "List Markdown/text files and folders in an explorer directory (defaults to the root).",
+                description: "List files and folders in an explorer directory (defaults to the root). Binary files are listed but cannot be edited.",
                 inputSchema: {
                     type: "object",
                     properties: { dir: { type: "string", minLength: 1 } },

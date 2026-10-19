@@ -32,7 +32,9 @@ export async function startServer({ store, workspace, document, root }) {
                 return json(403, { error: "origin_rejected", message: "Cross-origin requests are not allowed." });
             }
             const url = new URL(req.url, origin);
-            const asset = assets.get(url.pathname);
+            const asset = assets.get(url.pathname) ??
+                (/^\/chunks\/[\w-]+\.js$/.test(url.pathname)
+                    ? [`assets${url.pathname}`, "text/javascript; charset=utf-8"] : undefined);
             if (req.method === "GET" && asset) {
                 const body = await readFile(join(root, asset[0]));
                 res.writeHead(200, { "Content-Type": asset[1] });

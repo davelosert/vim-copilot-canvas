@@ -1,13 +1,11 @@
 import { readdir, realpath, stat } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { homedir } from "node:os";
-import { EditorError } from "./store.mjs";
+import { diskText, EditorError } from "./store.mjs";
 
-export const EXTENSIONS = [".md", ".markdown", ".mdown", ".txt"];
 const MAX_ENTRIES = 2000;
-const IGNORED = new Set(["node_modules"]);
-
-const supported = (name) => EXTENSIONS.includes(extname(name).toLowerCase());
+// The explorer lists everything, but the initial document is never picked from these.
+const skipForInitial = (name) => name.startsWith(".") || name === "node_modules";
 
 async function exists(path) {
     try { await stat(path); return true; }
@@ -46,7 +44,7 @@ export async function resolveInitialTarget({ filePath, rootPath, workingDirector
 export class Workspace {
     constructor(root, { ignore = [] } = {}) {
         this.root = root;
-        this.ignore = new Set([...IGNORED, ...ignore]);
+        this.ignore = new Set(ignore);
     }
 
     static async create({ rootPath, filePath, ignore }) {
@@ -87,7 +85,7 @@ export class Workspace {
         if (!(await stat(path)).isDirectory()) throw new EditorError("not_a_directory", "Not a directory.", 400);
         const entries = [];
         for (const item of await readdir(path, { withFileTypes: true })) {
-            if (item.name.startsWith(".") || (path === this.root && this.ignore.has(item.name)) || IGNORED.has(item.name)) continue;
+            if (path === this.root && this.ignore.has(item.name)) continue;
             const full = join(path, item.name);
             let type = item.isDirectory() ? "directory" : item.isFile() ? "file" : null;
             if (item.isSymbolicLink()) {
@@ -98,7 +96,7 @@ export class Workspace {
                     type = info.isDirectory() ? "directory" : info.isFile() ? "file" : null;
                 } catch { continue; }
             }
-            if (type === "directory" || (type === "file" && supported(item.name))) {
+            if (type === "directory" || type === "file") {
                 entries.push({ name: item.name, path: full, type });
             }
             if (entries.length >= MAX_ENTRIES) break;
@@ -113,14 +111,22 @@ export class Workspace {
         for (let depth = 0; queue.length && depth < 4; depth++) {
             const next = [];
             for (const directory of queue) {
-                const { entries } = await this.list(directory);
+                const entries = (await this.list(directory)).entries.filter((entry) => !skipForInitial(entry.name));
                 const files = entries.filter((entry) => entry.type === "file");
-                const preferred = files.find((entry) => /^(readme|index)\.(md|markdown)$/i.test(entry.name)) ?? files[0];
-                if (preferred) return preferred.path;
+                const preferred = files.find((entry) => /^(readme|index)\.(md|markdown)$/i.test(entry.name));
+                const candidates = preferred ? [preferred, ...files.filter((entry) => entry !== preferred)] : files;
+                for (const file of candidates) {
+                    try {
+                        await diskText(await this.resolve(file.path));
+                        return file.path;
+                    } catch (error) {
+                        if (!["unsupported_file", "unsupported_encoding"].includes(error.code)) throw error;
+                    }
+                }
                 next.push(...entries.filter((entry) => entry.type === "directory").map((entry) => entry.path));
             }
             queue.splice(0, queue.length, ...next.slice(0, 200));
         }
-        throw new EditorError("no_documents", "No Markdown or text files were found under rootPath.", 404);
+        throw new EditorError("no_documents", "No supported UTF-8 text files were found under rootPath.", 404);
     }
 }
