@@ -1,106 +1,15 @@
 import { fileURLToPath } from "node:url";
-import { basename, dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { DocumentStore } from "./store.mjs";
-import { startServer } from "./server.mjs";
-import { Workspace, resolveInitialTarget } from "./workspace.mjs";
+import { createProvider } from "./src/backend/canvas-provider.mjs";
 
+// Installation root: drafts, reviews, public assets and resources resolve from here.
 const root = dirname(fileURLToPath(import.meta.url));
-const store = new DocumentStore(join(root, "artifacts"));
-const servers = new Map();
 
-function entry(ctx) {
-    const value = servers.get(ctx.instanceId);
-    if (!value) throw new CanvasError("editor_not_open", "Open this editor before invoking an action.");
-    return value;
-}
-
-const session = await joinSession({
-    canvases: [createCanvas({
-        id: "vim-markdown",
-        displayName: "Vim Copilot Canvas",
-        description: "Edit UTF-8 text files with Vim keybindings, syntax highlighting, a file explorer, conflict-aware saves, and a live preview for Markdown.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                filePath: { type: "string", minLength: 1, description: "Absolute path of the file to open first." },
-                rootPath: { type: "string", minLength: 1, description: "Absolute explorer root directory. Defaults to the file's Git repository or folder, or to the session's working directory when no filePath is given." },
-            },
-            additionalProperties: false,
-        },
-        actions: [
-            {
-                name: "get_document",
-                description: "Read the current file, unsaved draft, revision, and external-change status.",
-                handler: async (ctx) => store.snapshot(await entry(ctx).document),
-            },
-            {
-                name: "save",
-                description: "Save the current persisted draft; refuses to overwrite externally changed files.",
-                inputSchema: {
-                    type: "object",
-                    properties: { revision: { type: "string" } },
-                    required: ["revision"],
-                    additionalProperties: false,
-                },
-                handler: async (ctx) => store.save(await entry(ctx).document, ctx.input.revision),
-            },
-            {
-                name: "open_file",
-                description: "Switch the editor to another file inside the explorer root (absolute or root-relative path). Unsaved drafts are kept.",
-                inputSchema: {
-                    type: "object",
-                    properties: { path: { type: "string", minLength: 1 } },
-                    required: ["path"],
-                    additionalProperties: false,
-                },
-                handler: async (ctx) => store.snapshot(await entry(ctx).openFile(ctx.input.path)),
-            },
-            {
-                name: "list_files",
-                description: "List files and folders in an explorer directory (defaults to the root). Binary files are listed but cannot be edited.",
-                inputSchema: {
-                    type: "object",
-                    properties: { dir: { type: "string", minLength: 1 } },
-                    additionalProperties: false,
-                },
-                handler: async (ctx) => entry(ctx).workspace.list(ctx.input?.dir),
-            },
-        ],
-        open: async (ctx) => {
-            const { filePath, rootPath } = ctx.input ?? {};
-            const workingDirectory = filePath || rootPath ? null : ctx.session?.workingDirectory ?? null;
-            const key = JSON.stringify([filePath ?? null, rootPath ?? null, workingDirectory]);
-            let value = servers.get(ctx.instanceId);
-            if (value && value.key !== key) {
-                servers.delete(ctx.instanceId);
-                await value.close();
-                value = undefined;
-            }
-            if (!value) {
-                let workspace;
-                let document;
-                const target = await resolveInitialTarget({ filePath, rootPath, workingDirectory });
-                if (target) {
-                    workspace = target.workspace;
-                    document = await store.open(target.path);
-                } else {
-                    document = await store.open();
-                    workspace = new Workspace(dirname(document.path), { ignore: ["drafts"] });
-                }
-                value = Object.assign(await startServer({
-                    store, workspace, document, root,
-                    sendMessage: (message) => session.send(message),
-                }), { key });
-                servers.set(ctx.instanceId, value);
-            }
-            return { title: `Vim · ${basename(value.workspace.root)}`, url: value.url };
-        },
-        onClose: async (ctx) => {
-            const value = servers.get(ctx.instanceId);
-            if (!value) return;
-            servers.delete(ctx.instanceId);
-            await value.close();
-        },
-    })],
+const provider = createProvider({
+    root,
+    sdk: { createCanvas, CanvasError },
+    sendMessage: (message) => session.send(message),
 });
+
+const session = await joinSession({ canvases: [provider.canvas] });

@@ -1,7 +1,7 @@
 import { EditorView } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
-import { editorThemes } from "./themes.js";
+import { editorThemes } from "../shared/themes.js";
 
 const highlightStyle = (colors) => HighlightStyle.define([
     { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: colors.comment, fontStyle: "italic" },
@@ -26,22 +26,16 @@ const highlightStyle = (colors) => HighlightStyle.define([
     { tag: t.invalid, color: colors.invalid },
 ]);
 
-function systemDarkMode() {
-    const mode = document.documentElement.dataset.colorMode ?? document.body.dataset.colorMode;
-    if (mode === "dark" || mode === "light") return mode === "dark";
-    return matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
-function resolveTheme(name) {
+function resolveTheme(name, systemDark) {
     const selected = editorThemes[name] ?? editorThemes.system;
-    if (selected.followsSystem) return selected[systemDarkMode() ? "dark" : "light"];
+    if (selected.followsSystem) return selected[systemDark ? "dark" : "light"];
     return selected.light ?? selected.dark;
 }
 
-export function editorTheme(name = "system") {
+export function editorTheme(name = "system", systemDark = false) {
     const selected = editorThemes[name] ?? editorThemes.system;
-    const dark = Boolean(selected.dark && !selected.light || selected.followsSystem && systemDarkMode());
-    const colors = resolveTheme(name);
+    const dark = Boolean(selected.dark && !selected.light || selected.followsSystem && systemDark);
+    const colors = resolveTheme(name, systemDark);
     return [
         EditorView.theme({
             "&": { color: colors.foreground, backgroundColor: colors.background },

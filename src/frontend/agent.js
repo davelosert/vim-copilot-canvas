@@ -2,6 +2,8 @@ import { Compartment, EditorState, StateEffect, StateField } from "@codemirror/s
 import { Decoration, EditorView, WidgetType, placeholder } from "@codemirror/view";
 import { minimalSetup } from "codemirror";
 import { vim, Vim, getCM } from "@replit/codemirror-vim";
+import { captureContext } from "./selection-context.js";
+export { captureContext } from "./selection-context.js";
 
 const setPrompt = StateEffect.define();
 const setMarkers = StateEffect.define();
@@ -36,21 +38,6 @@ const markerField = StateField.define({
     provide: (field) => EditorView.decorations.from(field),
 });
 
-export function captureContext(state, path) {
-    const selected = state.selection.ranges.filter((range) => !range.empty);
-    const ranges = selected.length ? selected : [state.doc.lineAt(state.selection.main.head)];
-    const position = (offset) => {
-        const line = state.doc.lineAt(offset);
-        return { line: line.number - 1, character: offset - line.from };
-    };
-    const selections = ranges.map(({ from, to }) => ({
-        start: position(from), end: position(to), text: state.sliceDoc(from, to),
-    }));
-    const first = selections[0].start.line + 1;
-    const last = Math.max(...ranges.map(({ from, to }) => state.doc.lineAt(to > from ? to - 1 : to).number));
-    return { path, selections, label: `${path.split("/").pop()}:${first}${last === first ? "" : `-${last}`}` };
-}
-
 function button(text, title, onClick) {
     const element = document.createElement("button");
     element.type = "button";
@@ -61,6 +48,8 @@ function button(text, title, onClick) {
 }
 
 export function createAgent({ getPath, reviewCount, send, addToReview, sendReview, onDone, extensions = () => [] }) {
+    let disposed = false;
+    const prompts = new Set();
     class Prompt extends WidgetType {
         constructor(context) {
             super();
@@ -93,6 +82,8 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
                     ],
                 }),
             });
+            prompts.add(inner);
+            let destroyed = false;
             const cm = getCM(inner);
             let currentMode = "normal";
             const showMode = (next, subMode) => {
@@ -110,6 +101,7 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
             status.setAttribute("aria-live", "polite");
             let sending = false;
             const active = () => {
+                if (disposed || destroyed) return false;
                 let found = false;
                 view.state.field(promptField).between(0, view.state.doc.length, (_from, _to, decoration) => {
                     if (decoration.spec.widget === this) found = true;
@@ -140,11 +132,13 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
                         onDone(kind);
                     }
                 } catch (error) {
-                    status.textContent = `Could not ${kind === "review" ? "add to review" : "send"}: ${error.message}`;
+                    if (active()) status.textContent = `Could not ${kind === "review" ? "add to review" : "send"}: ${error.message}`;
                 } finally {
                     sending = false;
-                    inner.dispatch({ effects: readOnly.reconfigure(EditorState.readOnly.of(false)) });
-                    for (const control of actions.querySelectorAll("button")) control.disabled = false;
+                    if (!destroyed && !disposed) {
+                        inner.dispatch({ effects: readOnly.reconfigure(EditorState.readOnly.of(false)) });
+                        for (const control of actions.querySelectorAll("button")) control.disabled = false;
+                    }
                 }
             };
             const hint = document.createElement("span");
@@ -184,10 +178,11 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
             form.addEventListener("keydown", (event) => event.stopPropagation());
             form.append(header, host, actions, status);
             form.inner = inner;
+            form.disposePrompt = () => { destroyed = true; prompts.delete(inner); inner.destroy(); };
             this.inner = inner;
             return form;
         }
-        destroy(dom) { dom.inner?.destroy(); }
+        destroy(dom) { dom.disposePrompt?.(); }
         ignoreEvent() { return true; }
     }
 
@@ -195,6 +190,7 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
         extensions: [promptField, markerField],
         isOpen: (view) => view.state.field(promptField).size > 0,
         open(view) {
+            if (disposed) return;
             const existing = view.state.field(promptField);
             if (existing.size) {
                 existing.between(0, view.state.doc.length, (_from, _to, decoration) => decoration.spec.widget.inner?.focus());
@@ -207,9 +203,15 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
             view.requestMeasure();
         },
         setMarkers(view, lines) {
+            if (disposed) return;
             const { doc } = view.state;
             const unique = [...new Set(lines.filter((line) => line >= 1 && line <= doc.lines))].sort((a, b) => a - b);
             view.dispatch({ effects: setMarkers.of(Decoration.set(unique.map((line) => pendingLine.range(doc.line(line).from)))) });
+        },
+        dispose() {
+            disposed = true;
+            for (const inner of prompts) inner.destroy();
+            prompts.clear();
         },
     };
 }
