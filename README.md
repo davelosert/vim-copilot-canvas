@@ -1,0 +1,71 @@
+# Vim Markdown canvas
+
+A user-scoped Copilot canvas using CodeMirror 6, `@replit/codemirror-vim`,
+Markdown language support, and a sanitized live preview. This is not Neovim:
+Lua configuration and Neovim plugins are not loaded.
+
+Open the `vim-markdown` canvas without input for the editable welcome document,
+or pass `{ "filePath": "/abs/doc.md" }` and/or `{ "rootPath": "/abs/folder" }`.
+Without `rootPath`, the explorer root is the file's nearest Git repository
+(stopping at your home directory) or its folder. With only `rootPath`, a README
+or index file is opened first. Existing `.md`, `.markdown`, `.mdown`, and `.txt`
+files up to 2 MiB are supported. Source/preview layout adapts to narrow panels.
+
+## File explorer
+
+The left sidebar lists folders and supported files below the root. Dotfiles and
+`node_modules` are hidden, and symlinks or paths leaving the root are refused.
+
+| Keys | Action |
+| --- | --- |
+| `Ctrl-w h` / `Ctrl-w w` / `:Ex` | Focus the explorer from the editor |
+| `Ctrl-w l` / `Esc` | Return to the editor |
+| `j` / `k`, `gg` / `G`, `Ctrl-d` / `Ctrl-u` | Move the selection |
+| `l` / `Enter` / `o` | Open the file in the editor, or expand a folder |
+| `h` | Collapse the folder, or jump to its parent |
+| `Space` | Open the file but keep focus in the explorer |
+| `R` / `q` / `:Lex` | Refresh / hide / toggle the explorer |
+| `:e path` | Open a file relative to the root |
+
+Click a file to preview it while staying in the explorer, double-click to edit
+it, click a folder to toggle it, and drag the sidebar edge to resize it.
+Switching files flushes the pending draft and starts a fresh undo history.
+
+Agent actions: `open_file { path }`, `list_files { dir? }`, `get_document`, and
+`save`. The panel follows `open_file` within about two seconds.
+
+- `i`, `a`, `o`, Escape, motions, visual selection, text objects, search,
+  registers, macros, undo, redo, and repeat use the library's Vim engine.
+- `:w` and Cmd/Ctrl+S explicitly save the file.
+- Drafts are persisted after a short debounce under `artifacts/drafts/`, keyed
+  by canonical file path rather than panel ID. Keep that folder private: it
+  contains document text, including the baseline used for conflict detection.
+- Panels in one provider share document state. Stale draft writes and detected
+  external file changes block saving. Use Copy draft before discarding a draft.
+  An unmodified editor reloads external changes automatically.
+- Saving uses a disk-content check and a same-directory atomic replacement.
+  This is not an OS-level compare-and-swap: an unrelated writer racing in the
+  narrow check-to-rename interval cannot be excluded. Atomic replacement can
+  also break hard-link relationships and does not preserve extended metadata.
+- Draft recovery survives iframe/provider reloads. In-flight keystrokes within
+  the debounce interval are not guaranteed to survive an abrupt process crash.
+- HTTP endpoints bind to loopback, validate Host/Origin, and require a random
+  per-panel token for document operations. Frontend assets are bundled locally.
+- Preview HTML is sanitized, scripts and remote images are disabled, and only
+  explicit HTTP(S) links open externally.
+
+The extension runs on the session's execution host. A remote host needs its own
+extension installation and file access; this local user installation does not
+automatically synchronize to remote machines.
+
+## Development
+
+```sh
+npm ci
+npm run build
+npm test
+```
+
+Browser tests use Playwright Chromium (`npx playwright install chromium` if
+it is not installed). Build assets are shipped alongside `extension.mjs`;
+reload extensions after changing provider code.
