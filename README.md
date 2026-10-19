@@ -19,6 +19,8 @@ files use plain text. Markdown (`.md`, `.markdown`, `.mdown`) keeps its Edit/Spl
 controls, live rendering, and word count; other files use the full editor pane
 without preview controls. Returning to Markdown restores the selected layout.
 Source/preview layout adapts to narrow panels.
+Syntax colours use GitHub's light and dark palettes (`theme.js`) and follow the
+host's colour mode (`data-color-mode`, falling back to `prefers-color-scheme`).
 
 ## File explorer
 

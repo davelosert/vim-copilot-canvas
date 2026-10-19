@@ -11,6 +11,7 @@ import markedFootnote from "marked-footnote";
 import { gfmHeadingId } from "marked-gfm-heading-id";
 import filterXSS from "xss";
 import { createExplorer } from "./explorer.js";
+import { editorTheme as githubTheme } from "./theme.js";
 
 const $ = (id) => document.getElementById(id);
 const heading = ["id", "class"];
@@ -252,12 +253,7 @@ function darkMode() {
     return matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
-function editorTheme() {
-    return EditorView.theme({
-        "&": { color: "var(--editor-text)", backgroundColor: "var(--editor-surface)" },
-        ".cm-content": { caretColor: "var(--editor-text)" },
-    }, { dark: darkMode() });
-}
+const editorTheme = () => githubTheme(darkMode());
 
 const documentUrl = () => `document?path=${encodeURIComponent(current.path)}`;
 
