@@ -13,7 +13,7 @@ export class EditorError extends Error {
     }
 }
 
-async function atomicWrite(path, content, mode = 0o600) {
+export async function atomicWrite(path, content, mode = 0o600) {
     const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
     let created = false;
     try {

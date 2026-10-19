@@ -15,7 +15,7 @@ function entry(ctx) {
     return value;
 }
 
-await joinSession({
+const session = await joinSession({
     canvases: [createCanvas({
         id: "vim-markdown",
         displayName: "Vim Markdown",
@@ -88,7 +88,10 @@ await joinSession({
                     document = await store.open();
                     workspace = new Workspace(dirname(document.path), { ignore: ["drafts"] });
                 }
-                value = Object.assign(await startServer({ store, workspace, document, root }), { key });
+                value = Object.assign(await startServer({
+                    store, workspace, document, root,
+                    sendMessage: (message) => session.send(message),
+                }), { key });
                 servers.set(ctx.instanceId, value);
             }
             return { title: `Vim · ${basename(value.workspace.root)}`, url: value.url };

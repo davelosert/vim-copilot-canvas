@@ -19,6 +19,8 @@ files use plain text. Markdown (`.md`, `.markdown`, `.mdown`) keeps its Edit/Spl
 controls, live rendering, and word count; other files use the full editor pane
 without preview controls. Returning to Markdown restores the selected layout.
 Source/preview layout adapts to narrow panels.
+Syntax colours use GitHub's light and dark palettes (`theme.js`) and follow the
+host's colour mode (`data-color-mode`, falling back to `prefers-color-scheme`).
 
 ## Settings
 
@@ -94,6 +96,43 @@ Agent actions: `open_file { path }`, `list_files { dir? }`, `get_document`, and
 The extension runs on the session's execution host. A remote host needs its own
 extension installation and file access; this local user installation does not
 automatically synchronize to remote machines.
+
+## Send to Agent
+
+Press `Ctrl+i` in the editor (Normal, Insert, or Visual mode) to open a prompt
+inline below the cursor. This overrides Vim's usual Ctrl+i jump-forward binding.
+The prompt is its own small Vim editor and starts in Insert mode; `Esc` switches
+to Normal mode and a second `Esc` (or Cancel) closes it without sending.
+Messages go to the agent in the canvas's current GitHub Copilot App session and
+responses appear in the app conversation, not in the editor.
+
+| Key (Insert or Normal mode in the prompt) | Action |
+| --- | --- |
+| `Enter` | Send now, or add to the review while one is pending |
+| `Ctrl+Enter` | Add to the review (starts one if needed) |
+| `Ctrl+Shift+Enter` | Add the prompt, if any, and send the whole review |
+| `Shift+Enter` | Insert a newline |
+
+### Reviews
+
+Comments added to a review are collected instead of sent individually. A
+review bar above the status bar lists them (click to jump, × to remove) and
+commented lines are tinted. Send the review with its button,
+`Ctrl+Shift+Enter` anywhere in the canvas, or `:AgentSend`; `:AgentDiscard`
+(or Discard) clears it after confirmation. All comments go out as one numbered
+message with every selection attached. Reviews can span files, are stored per
+explorer root under `artifacts/reviews/`, and survive reloads. A failed send
+keeps the review intact. Line tints follow edits made in this panel but are
+re-anchored to the recorded lines after reloads.
+
+The message includes the canonical file path, zero-based selection coordinates,
+and the captured text as SDK selection attachments. Without a selection, the
+current line is attached. Visual character, line, and block selections retain
+their ranges (block selections use one attachment per range).
+Context is frozen when the prompt opens, including unsaved text; sending does
+not require saving or resolving a disk conflict. Switching files closes the
+prompt. Failed sends retain the prompt and show an error for manual retry;
+the prompt is read-only while delivery is pending.
 
 ## Development
 

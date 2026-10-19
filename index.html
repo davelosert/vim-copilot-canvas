@@ -34,7 +34,11 @@
     <section class="preview-pane" aria-label="Markdown preview"><div class="pane-label"><span>PREVIEW</span><span>Live rendering</span></div><article id="preview"></article></section>
   </main>
   </div>
-  <footer class="statusbar"><div><span id="mode" class="mode">NORMAL</span><span id="save-status">Loading</span></div><div><span id="words">0 words</span><span id="cursor">Ln 1, Col 1</span><span id="filetype" class="filetype">Markdown</span></div></footer>
+  <section id="review" class="review" aria-label="Agent review" hidden>
+    <div class="review-bar"><button id="review-toggle" class="review-toggle" type="button" aria-expanded="false" aria-controls="review-list"><span id="review-count">Review</span></button><span class="review-actions"><button id="review-discard" type="button" title="Discard all pending comments (:AgentDiscard)">Discard</button><button id="review-send" class="primary" type="button" title="Send all comments in one message (Ctrl+Shift+Enter or :AgentSend)">Send review</button></span></div>
+    <ol id="review-list" class="review-list" hidden></ol>
+  </section>
+  <footer class="statusbar"><div><span id="mode" class="mode">NORMAL</span><span id="save-status">Loading</span><span id="agent-status" role="status" aria-live="polite"></span></div><div><span id="words">0 words</span><span id="cursor">Ln 1, Col 1</span><span id="filetype" class="filetype">Markdown</span></div></footer>
   <dialog id="settings" aria-labelledby="settings-title">
     <div class="dialog-heading"><h1 id="settings-title">Settings</h1><button id="close-settings" aria-label="Close settings">Close</button></div>
     <label class="setting"><input id="relative-line-numbers" type="checkbox" aria-describedby="relative-line-numbers-description"> Relative line numbers</label>
@@ -51,6 +55,12 @@
       <kbd>yy / p</kbd><span>Yank a line / paste</span><kbd>u / Ctrl+r</kbd><span>Undo / redo</span>
       <kbd>/ / n / N</kbd><span>Search / next / previous</span><kbd>.</kbd><span>Repeat the last change</span>
       <kbd>qa ... q / @a</kbd><span>Record / replay a macro</span><kbd>:w / Cmd/Ctrl+s</kbd><span>Retry / flush automatic saving</span>
+    </div>
+    <span class="eyebrow">SEND TO AGENT</span>
+    <div class="shortcut-grid">
+      <kbd>Ctrl+i</kbd><span>Prompt the agent about the cursor line or selection</span><kbd>Enter</kbd><span>Send now (adds to the review while one is open)</span>
+      <kbd>Ctrl+Enter</kbd><span>Add the prompt to the review</span><kbd>Shift+Enter</kbd><span>New line in the prompt</span>
+      <kbd>Ctrl+Shift+Enter / :AgentSend</kbd><span>Send the whole review</span><kbd>Esc Esc / :AgentDiscard</kbd><span>Cancel the prompt / discard the review</span>
     </div>
     <span class="eyebrow">FILE EXPLORER</span>
     <div class="shortcut-grid">

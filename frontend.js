@@ -11,6 +11,8 @@ import markedFootnote from "marked-footnote";
 import { gfmHeadingId } from "marked-gfm-heading-id";
 import filterXSS from "xss";
 import { createExplorer } from "./explorer.js";
+import { createAgent } from "./agent.js";
+import { editorTheme as githubTheme } from "./theme.js";
 
 const $ = (id) => document.getElementById(id);
 const heading = ["id", "class"];
@@ -77,6 +79,22 @@ let saveFailed = false;
 let previewTimer;
 let operations = Promise.resolve();
 let explorer;
+let review = [];
+let reviewKey = "";
+const agent = createAgent({
+    getPath: () => current.path,
+    reviewCount: () => review.length,
+    send: (input) => api("agent", input),
+    addToReview: async (input) => setReview(await api("review/add", input)),
+    sendReview: async (input) => {
+        if (input) setReview(await api("review/add", input));
+        await submitReview();
+    },
+    onDone: (kind) => {
+        $("agent-status").textContent = kind === "review" ? `Added to review (${review.length})` : kind === "send" ? "Sent to Agent" : "";
+    },
+    extensions: () => [editorTheme()],
+});
 
 const markdownRenderer = new Marked({ gfm: true, breaks: false })
     .use(gfmHeadingId())
@@ -243,6 +261,7 @@ function replaceDocument(snapshot) {
     current = snapshot;
     saveFailed = false;
     localVersion = persistedVersion = 0;
+    showMarkers();
     renderPreview();
     updateCursor();
     refreshStatus();
@@ -254,12 +273,7 @@ function darkMode() {
     return matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
-function editorTheme() {
-    return EditorView.theme({
-        "&": { color: "var(--editor-text)", backgroundColor: "var(--editor-surface)" },
-        ".cm-content": { caretColor: "var(--editor-text)" },
-    }, { dark: darkMode() });
-}
+const editorTheme = () => githubTheme(darkMode());
 
 const documentUrl = () => `document?path=${encodeURIComponent(current.path)}`;
 
@@ -328,7 +342,7 @@ function createState(content) {
                     return { effects: numbering.reconfigure(lineNumberStyle()) };
                 }),
                 language.of(isMarkdown() ? markdown({ codeLanguages: languages }) : []),
-                EditorView.lineWrapping,
+                EditorView.lineWrapping, agent.extensions,
                 lineBreaks.of(EditorState.lineSeparator.of(content.includes("\r\n") ? "\r\n" : "\n")),
                 theme.of(editorTheme()), editable.of(EditorView.editable.of(true)),
                 EditorView.contentAttributes.of({ "aria-label": "Text editor", spellcheck: "false" }),
@@ -379,6 +393,7 @@ function loadDocument(snapshot) {
     editor.setState(createState(snapshot.content));
     attachVim();
     showDocument();
+    showMarkers();
     explorer?.reveal(snapshot.path);
 }
 
@@ -424,7 +439,88 @@ function focusEditor() {
     editor.focus();
 }
 
+function showMarkers() {
+    if (!editor || !current) return;
+    agent.setMarkers(editor, review.filter((item) => item.path === current.path)
+        .flatMap((item) => item.lines.flatMap(({ start, end }) => Array.from({ length: end - start + 1 }, (_, i) => start + i))));
+}
+
+function renderReview() {
+    const bar = $("review");
+    bar.hidden = review.length === 0;
+    $("review-count").textContent = `Review · ${review.length} comment${review.length === 1 ? "" : "s"}`;
+    const list = $("review-list");
+    list.replaceChildren(...review.map((item) => {
+        const row = document.createElement("li");
+        const open = document.createElement("button");
+        open.type = "button";
+        open.className = "review-item";
+        const label = document.createElement("strong");
+        label.textContent = item.label;
+        const prompt = document.createElement("span");
+        prompt.textContent = item.prompt;
+        open.append(label, prompt);
+        open.title = `${item.path}\n\n${item.prompt}`;
+        open.addEventListener("click", () => jumpTo(item));
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "review-remove";
+        remove.textContent = "×";
+        remove.setAttribute("aria-label", `Remove comment on ${item.label}`);
+        remove.addEventListener("click", () => api("review/remove", { ids: [item.id] }).then(setReview).catch(showError));
+        row.append(open, remove);
+        return row;
+    }));
+    if (!review.length) $("review-list").hidden = true;
+    $("review-toggle").setAttribute("aria-expanded", String(!$("review-list").hidden));
+}
+
+// Markers are only reset when the review changes, so local edits keep mapping them.
+function setReview(result) {
+    review = result.items;
+    const key = JSON.stringify(review.map((item) => item.id));
+    if (key === reviewKey) return;
+    reviewKey = key;
+    renderReview();
+    showMarkers();
+}
+
+async function jumpTo(item) {
+    await switchTo(item.path);
+    if (current.path !== item.path) return;
+    const line = editor.state.doc.line(Math.min(item.lines[0].start, editor.state.doc.lines));
+    editor.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
+    editor.focus();
+}
+
+let submitting = false;
+async function submitReview() {
+    if (submitting || !review.length) return;
+    submitting = true;
+    $("review-send").disabled = true;
+    const count = review.length;
+    $("agent-status").textContent = "Sending review...";
+    try {
+        setReview(await api("review/send", {}));
+        $("agent-status").textContent = `Sent review (${count}) to Agent`;
+    } catch (error) {
+        $("agent-status").textContent = "";
+        throw error;
+    } finally {
+        submitting = false;
+        $("review-send").disabled = false;
+    }
+}
+
+async function discardReview() {
+    if (!review.length || !confirm(`Discard ${review.length} pending review comment${review.length === 1 ? "" : "s"}?`)) return;
+    setReview(await api("review/clear", {}));
+    $("agent-status").textContent = "Review discarded";
+}
+
 function registerVimCommands() {
+    Vim.defineEx("AgentSend", "AgentS", () => { submitReview().catch(showError); });
+    Vim.defineEx("AgentDiscard", "AgentD", () => { discardReview().catch(showError); });
     Vim.defineEx("write", "w", (_cm, params) => {
         if (params.argString?.trim()) {
             showError(new Error(":w only saves the current file. Use :e <path> or the explorer to switch files."));
@@ -504,6 +600,21 @@ async function boot() {
         target?.scrollIntoView({ block: "start" });
     });
     document.addEventListener("keydown", (event) => {
+        const inPanel = event.target.closest?.(".agent-prompt");
+        if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "i" &&
+            editor.dom.contains(event.target)) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!inPanel) agent.open(editor);
+            return;
+        }
+        if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key === "Enter" && !inPanel &&
+            !event.target.closest?.("dialog")) {
+            event.preventDefault();
+            event.stopPropagation();
+            submitReview().catch(showError);
+            return;
+        }
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
             event.preventDefault();
             save();
@@ -519,6 +630,13 @@ async function boot() {
             editor.requestMeasure();
         });
     }
+    $("review-send").addEventListener("click", () => submitReview().catch(showError));
+    $("review-discard").addEventListener("click", () => discardReview().catch(showError));
+    $("review-toggle").addEventListener("click", () => {
+        $("review-list").hidden = !$("review-list").hidden;
+        $("review-toggle").setAttribute("aria-expanded", String(!$("review-list").hidden));
+    });
+    api("review").then(setReview).catch(showError);
     $("help-button").addEventListener("click", () => $("help").showModal());
     $("close-help").addEventListener("click", () => { $("help").close(); editor.focus(); });
     $("dismiss-notice").addEventListener("click", () => { $("notice").hidden = true; });
@@ -560,6 +678,7 @@ async function boot() {
                 await switchTo(snapshot.activePath, { focusEditor: false, fromServer: true });
                 return;
             }
+            setReview(await api("review"));
             if (snapshot.revision !== current.revision) {
                 if (localPending()) throw Object.assign(new Error("The file or draft changed while you were typing. Your local text is preserved; copy it before reloading."), { code: "draft_conflict" });
                 replaceDocument(snapshot);
