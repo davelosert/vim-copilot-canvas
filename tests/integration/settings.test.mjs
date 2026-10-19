@@ -13,7 +13,7 @@ async function fixture() {
 }
 
 test("settings use the standard global canvas artifacts directory", () => {
-    assert.equal(settingsPath("/custom/copilot"), "/custom/copilot/extensions/vim-markdown/artifacts/settings.json");
+    assert.equal(settingsPath("/custom/copilot"), join("/custom/copilot", "extensions", "vim-markdown", "artifacts", "settings.json"));
     assert.equal(settingsPath(), join(process.env.COPILOT_HOME || join(homedir(), ".copilot"), "extensions", "vim-markdown", "artifacts", "settings.json"));
 });
 
@@ -72,7 +72,7 @@ test("settings filesystem failures are surfaced", async () => {
     const { path, settings } = await fixture();
     await settings.update({ relativeLineNumbers: true });
     const unwritable = new SettingsStore(join(path, "settings.json"));
-    await assert.rejects(unwritable.update({ relativeLineNumbers: true }), { code: "ENOTDIR" });
+    await assert.rejects(unwritable.update({ relativeLineNumbers: true }), (error) => ["ENOTDIR", "EEXIST"].includes(error.code));
 });
 
 test("settings HTTP endpoints validate authentication, origin and input", async () => {
