@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { mountApp } from "../../src/frontend/app.js";
 import { createExplorer } from "../../src/frontend/explorer.js";
+import "../../src/frontend/primer.css";
 
 const [markup, stylesheet] = await Promise.all(["/index.html", "/editor.css"].map(async (url) => (await fetch(url)).text()));
 const deferred = () => {
@@ -210,7 +211,7 @@ describe("mounted frontend with real CodeMirror", () => {
         expect(content.getBoundingClientRect().height).toBeGreaterThanOrEqual(lineHeight * 3);
 
         const send = [...prompt.querySelectorAll(".agent-actions button")].find((el) => el.textContent.startsWith("Send to Agent"));
-        expect(send.classList.contains("primary")).toBe(true);
+        expect(send.classList.contains("btn-primary")).toBe(true);
         expect(send.querySelector("kbd").textContent).toMatch(/⏎|Enter/);
         expect(getComputedStyle(send.querySelector("kbd")).display).not.toBe("none");
         expect(send.getAttribute("aria-keyshortcuts")).toBe("Enter");

@@ -17,6 +17,7 @@ const ASSETS = new Map([
     ["/", ["public/index.html", "text/html; charset=utf-8"]],
     ["/editor.js", ["assets/editor.js", "text/javascript; charset=utf-8"]],
     ["/editor.css", ["public/editor.css", "text/css; charset=utf-8"]],
+    ["/primer.css", ["assets/editor.css", "text/css; charset=utf-8"]],
 ]);
 
 function assetFor(pathname) {

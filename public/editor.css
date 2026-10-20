@@ -39,8 +39,8 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: var(--editor-page); color: var(--editor-text); font: 14px/1.5 var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif); }
-button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--editor-border); background: var(--editor-surface); border-radius: 6px; padding: 5px 10px; white-space: nowrap; }
-button:hover { background: var(--editor-soft); }
+button:where(:not(.btn)) { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--editor-border); background: var(--editor-surface); border-radius: 6px; padding: 5px 10px; white-space: nowrap; }
+button:where(:not(.btn)):hover { background: var(--editor-soft); }
 button:focus-visible { outline: 2px solid var(--color-focus-outline); outline-offset: 2px; }
 button:disabled { cursor: default; opacity: .5; }
 kbd { font: 11px var(--font-mono, "SFMono-Regular", Consolas, monospace); }
@@ -103,10 +103,12 @@ button.mini:hover { color: var(--editor-text); }
 .cm-line { padding-left: 14px; padding-right: 20px; }
 .cm-gutters { padding-left: 6px; }
 .cm-vim-panel input { color: var(--editor-text); background: transparent; font-family: var(--font-mono, monospace); }
-.agent-prompt { margin: 8px 14px; padding: 10px 12px; border: 1px solid var(--editor-accent); border-radius: 7px; background: var(--editor-soft); font: 12px/1.5 var(--font-sans, sans-serif); white-space: normal; }
-.agent-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; overflow-wrap: anywhere; font-weight: 600; }
-.agent-header .mode { font-family: var(--font-mono, monospace); }
-.agent-input { margin: 8px 0; border: 1px solid var(--editor-border); border-radius: 4px; background: var(--editor-surface); }
+.agent-prompt { margin: 12px 14px; border: 1px solid var(--borderColor-default); border-radius: 6px; background: var(--bgColor-default); color: var(--fgColor-default); font-size: 12px; line-height: 1.5; white-space: normal; }
+.agent-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--borderColor-default); border-radius: 5px 5px 0 0; background: var(--bgColor-muted); font-weight: 600; }
+.agent-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.agent-context { color: var(--fgColor-muted); font-weight: 400; overflow-wrap: anywhere; }
+.agent-header .mode { flex-shrink: 0; font-family: var(--font-mono, var(--fontStack-monospace)); }
+.agent-input { margin: 12px; border: 1px solid var(--borderColor-default); border-radius: 6px; background: var(--bgColor-default); overflow: hidden; }
 .agent-input:focus-within { outline: 2px solid var(--color-focus-outline); outline-offset: 1px; }
 .agent-input .cm-editor { max-height: 40vh; }
 .agent-input .cm-editor.cm-focused { outline: none; }
@@ -116,15 +118,13 @@ button.mini:hover { color: var(--editor-text); }
 /* The outer editor's Vim rules are descendant selectors and leak into the nested prompt editor; undo them here. */
 .agent-input .cm-scroller:not(.cm-vimMode) .cm-cursorLayer:not(.cm-vimCursorLayer) { display: block; }
 .agent-input .cm-editor.cm-focused .cm-fat-cursor { outline: none; background: var(--editor-cursor-color, var(--editor-text)); color: var(--editor-cursor-text, var(--editor-surface)) !important; }
-.agent-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.agent-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 12px; }
 .agent-actions button { display: inline-flex; align-items: center; gap: 8px; }
-.agent-actions button.primary { background: var(--editor-accent); border-color: var(--editor-accent); color: var(--color-white, #fff); }
-.agent-actions button.primary:hover { background: color-mix(in srgb, var(--editor-accent) 88%, #000); }
 .agent-actions .agent-cancel { margin-left: auto; }
-.agent-actions kbd, .agent-hint kbd { display: inline-block; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); border-radius: 4px; padding: 0 5px; font-size: 11px; line-height: 16px; opacity: .85; }
-.agent-actions button.primary kbd { border-color: color-mix(in srgb, currentColor 45%, transparent); }
-.agent-hint { margin-top: 8px; color: var(--editor-muted); font-size: 11px; }
-.agent-status:not(:empty) { margin-top: 8px; overflow-wrap: anywhere; }
+.agent-actions kbd, .agent-hint kbd { display: inline-block; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); border-radius: 4px; padding: 0 5px; font-size: 11px; line-height: 16px; }
+.agent-actions .btn-primary kbd { border-color: color-mix(in srgb, currentColor 45%, transparent); }
+.agent-hint { padding: 8px 12px 12px; color: var(--fgColor-muted); font-size: 11px; }
+.agent-status:not(:empty) { padding: 0 12px 12px; overflow-wrap: anywhere; }
 .cm-line.cm-agent-pending { background: color-mix(in srgb, var(--editor-warning) 22%, transparent) !important; }
 .review { border-top: 1px solid var(--editor-border); background: var(--editor-soft); font-size: 12px; }
 .review-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 14px; }
@@ -132,7 +132,6 @@ button.mini:hover { color: var(--editor-text); }
 .review-toggle::before { content: "▸ "; color: var(--editor-muted); }
 .review-toggle[aria-expanded="true"]::before { content: "▾ "; }
 .review-actions { display: flex; gap: 6px; }
-.review-actions .primary { background: var(--editor-accent); border-color: var(--editor-accent); color: var(--editor-accent-contrast); }
 .review-list { list-style: none; margin: 0; padding: 0 14px 8px; max-height: 30vh; overflow: auto; }
 .review-list li { display: flex; gap: 4px; align-items: stretch; }
 .review-item { flex: 1; min-width: 0; display: flex; gap: 10px; text-align: left; border: none; background: none; padding: 4px 6px; }
