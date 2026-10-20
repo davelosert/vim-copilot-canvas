@@ -135,13 +135,7 @@ must not overwrite the host's colour-mode attributes.
 The generated stylesheet is served locally as `/primer.css`, with no CDN
 or runtime dependency installation.
 
-The document controller owns the
-current snapshot, edit generations, serialized saves, file switching, reloads,
-polling, and conflicts. It has no DOM or CodeMirror dependency. The editor
-adapter owns CodeMirror state and configuration; preview, settings, reviews,
-explorer, and inline agent prompts own their own UI and communicate through
-explicit callbacks. Application disposal removes listeners and timers and
-destroys editor views, so components can be mounted independently in tests.
+The document controller owns the current snapshot, edit generations, serialized saves, file switching, reloads, polling, and draft conflicts. It silently reloads the open document when its disk content changes, replacing any unsynced edits. It has no DOM or CodeMirror dependency. The editor adapter owns CodeMirror state and configuration; preview, settings, reviews, explorer, and inline agent prompts own their own UI and communicate through explicit callbacks. Application disposal removes listeners and timers and destroys editor views, so components can be mounted independently in tests.
 Reloading temporarily makes the editor read-only to protect the replacement
 from concurrent input. Errors in unrelated UI features no longer mark the
 document as unsaved or conflicted.

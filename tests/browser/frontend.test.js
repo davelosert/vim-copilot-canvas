@@ -273,7 +273,7 @@ describe("mounted frontend with real CodeMirror", () => {
         expect($("save-status").textContent).toBe("Saved to disk");
     });
 
-    it("does not count server replacements as local edits and gates typing throughout reload", async () => {
+    it("automatically reloads disk conflicts without marking the replacement as a local edit", async () => {
         const { app, api } = await fixture();
         const original = api.getMockImplementation();
         const server = { ...app.controller.getState().current, content: "# External\n\nDisk version", revision: "external", conflict: true };
@@ -283,26 +283,18 @@ describe("mounted frontend with real CodeMirror", () => {
             if (path === "reload") { entered.resolve(input); return response.promise; }
             return original(path, input);
         });
-        await app.controller.poll();
-        expect(app.editor.readText()).toBe(server.content);
-        expect(app.controller.getState()).toMatchObject({ localVersion: 0, persistedVersion: 0, localPending: false });
-        expect(api.mock.calls.filter(([path]) => path === "draft")).toHaveLength(0);
-        await userEvent.click($("reload-button"));
+        const polling = app.controller.poll();
         await entered.promise;
-        expect(app.editor.view.state.readOnly).toBe(true);
-        expect(app.editor.view.contentDOM.contentEditable).toBe("false");
-        const before = app.editor.readText();
-        app.editor.focus();
-        await key("i");
-        await key("must not insert");
-        await key("{Escape}");
-        expect(app.editor.readText()).toBe(before);
         response.resolve({ ...server, content: "# Reloaded", conflict: false, revision: "reloaded" });
-        await expect.poll(() => app.editor.readText()).toBe("# Reloaded");
-        await expect.poll(() => app.editor.view.state.readOnly).toBe(false);
-        expect(app.controller.getState()).toMatchObject({ localVersion: 0, persistedVersion: 0, blocked: false });
-        await insert(app, "allowed ");
-        expect(app.editor.readText()).toContain("allowed ");
+        await polling;
+        expect(app.editor.readText()).toBe("# Reloaded");
+        expect(app.controller.getState()).toMatchObject({
+            localVersion: 0, persistedVersion: 0, localPending: false, blocked: false,
+            current: { conflict: false, dirty: false },
+        });
+        expect(api.mock.calls.filter(([path]) => path === "draft")).toHaveLength(0);
+        expect($("conflict").hidden).toBe(true);
+        expect($("notice").hidden).toBe(true);
     });
 
     it("disposes listeners, timers, editors and prompts and can remount without duplicate actions", async () => {
