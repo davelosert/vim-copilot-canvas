@@ -37,6 +37,7 @@ export function markdownLinkAt(state, position) {
     } catch { return null; }
     return { from: range.from, to: range.to, href };
 }
+
 const linkChanged = StateEffect.define();
 
 export function markdownLinks() {
@@ -144,3 +145,4 @@ export function markdownLinks() {
         }),
     ];
 }
+
