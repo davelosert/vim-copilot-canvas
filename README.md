@@ -9,7 +9,7 @@ A Canvas for the GitHub Copilot App that brings Vim-style navigation and editing
 - Local image previews (including SVG), resolved relative to the Markdown file within the workspace, up to 5 MiB per image. External images are not fetched.
 - Bidirectional scroll sync between the Markdown editor and preview, matching relative document progress.
 - A Vim-tree-style file explorer for quickly navigating project files.
-- Settings and theming, including relative line numbers.
+- Settings and theming, including relative line numbers and keyboard shortcut indicators.
 
 Collect requests in a **batch** to send them to the agent together; this is not a GitHub pull request review.
 Pending batch comments have clickable comment icons in the editor's left-hand gutter.
@@ -87,6 +87,14 @@ The frontend uses vanilla DOM and ES modules; `app.js` composes features and `ma
 
 The document controller manages edits, serialized saves, file switching, reloads, polling, and conflicts independently of the UI. It reloads the open document when disk content changes, replacing unsynced edits, and temporarily makes the editor read-only during reload. Backend routes use persistent stores; shared modules must remain safe to import in both browser and Node.js environments. Dispose independently mounted apps after each test.
 Batch internals retain the existing `review` API paths, storage directories, and DOM hooks for compatibility with saved requests.
+
+Settings apply immediately as an in-memory preview; only **Save** writes changed preferences to disk.
+**Discard**, closing the dialog, and Escape restore the last saved preferences without writing.
+While a save is in flight, duplicate saves and dismissal are blocked; further previews remain editable but require another explicit Save.
+Failed saves keep the preview and display an error so the user can retry or discard it.
+Opening the dialog refreshes persisted preferences without letting a stale read overwrite newer local edits.
+Only changed editor compartments are reconfigured; changing shortcut visibility does not rebuild themes or line numbers.
+The backend retains atomic JSON writes so preferences survive restarts without partially written files.
 
 Use unit tests for logic, integration tests for filesystem and HTTP behavior, and Browser Mode for UI interactions. E2E tests exercise the built app. Dispose independently mounted apps after each test. Build assets are shipped with `extension.mjs`; regenerate them after frontend changes and do not edit them by hand. The host provides the Copilot SDK, so it is not an npm dependency.
 

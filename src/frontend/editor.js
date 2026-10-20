@@ -11,7 +11,7 @@ import { isMarkdown } from "./markdown.js";
 export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor, onMode, onLanguage, onError, systemDark = false }) {
     const theme = new Compartment(), numbering = new Compartment(), language = new Compartment();
     const lineBreaks = new Compartment(), editable = new Compartment();
-    let settings = { relativeLineNumbers: false, theme: "system" };
+    let settings = { relativeLineNumbers: false, theme: "system" }, themeExtensions;
     let applying = false, disposed = false, languageRequest = 0, isEditable = true;
     let view, modeListener, cm;
     const lineNumberStyle = () => lineNumbers({
@@ -20,7 +20,7 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
             return String(settings.relativeLineNumbers && number !== active ? Math.abs(number - active) : number);
         },
     });
-    const currentTheme = () => editorTheme(settings.theme, systemDark);
+    const currentTheme = () => themeExtensions ??= editorTheme(settings.theme, systemDark);
     const cursor = () => {
         const position = view.state.selection.main.head;
         const line = view.state.doc.lineAt(position);
@@ -97,12 +97,23 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
             cursor();
         },
         applySettings(value) {
+            const relativeChanged = settings.relativeLineNumbers !== value.relativeLineNumbers;
+            const themeChanged = settings.theme !== value.theme;
             settings = { ...value };
-            if (view && !disposed) view.dispatch({ effects: [numbering.reconfigure(lineNumberStyle()), theme.reconfigure(currentTheme())] });
+            if (themeChanged) themeExtensions = undefined;
+            if (!view || disposed) return;
+            const effects = [];
+            if (relativeChanged) effects.push(numbering.reconfigure(lineNumberStyle()));
+            if (themeChanged) effects.push(theme.reconfigure(currentTheme()));
+            if (effects.length) view.dispatch({ effects });
         },
         updateTheme(dark) {
+            if (systemDark === dark) return false;
             systemDark = dark;
+            if (settings.theme !== "system") return false;
+            themeExtensions = undefined;
             if (view && !disposed) view.dispatch({ effects: theme.reconfigure(currentTheme()) });
+            return true;
         },
         setEditable(value) {
             isEditable = value;

@@ -138,8 +138,17 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         onHide: () => { shell.setSidebar(false); editor.focus(); }, onError: report,
     });
     const preferences = createSettings({
-        elements: elements({ dialog: "settings", button: "settings-button", close: "close-settings", relative: "relative-line-numbers", agentVim: "agent-vim-mode", theme: "editor-theme", status: "settings-status" }),
-        api, onSettings: (value) => { editor.applySettings(value); agent.applySettings(value); applyShellTheme(); },
+        elements: elements({ dialog: "settings", button: "settings-button", close: "close-settings", relative: "relative-line-numbers",
+            shortcuts: "show-keyboard-shortcut-indicators", theme: "editor-theme", status: "settings-status",
+            save: "save-settings", discard: "discard-settings", agentVim: "agent-vim-mode" }),
+        api, onSettings: (value, previous) => {
+            editor.applySettings(value);
+            if (!previous || value.agentVimMode !== previous.agentVimMode) agent.applySettings(value);
+            if (!previous || value.showKeyboardShortcutIndicators !== previous.showKeyboardShortcutIndicators) {
+                doc.documentElement.dataset.showKeyboardShortcutIndicators = String(value.showKeyboardShortcutIndicators ?? true);
+            }
+            if (!previous || value.theme !== previous.theme) applyShellTheme();
+        },
     });
     controller = createDocumentController({
         api: {
@@ -174,11 +183,9 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     listen($("collapse-tree"), "click", () => explorer.collapseAll());
     const updateTheme = () => {
         if (disposed) return;
-        const dark = systemDark();
-        editor.updateTheme(dark);
-        applyShellTheme();
+        if (editor.updateTheme(systemDark())) applyShellTheme();
     };
-    updateTheme();
+    applyShellTheme();
     const observer = new win.MutationObserver(updateTheme);
     for (const node of [doc.documentElement, doc.body]) {
         observer.observe(node, { attributes: true, attributeFilter: ["data-color-mode", "data-dark-theme", "data-light-theme"] });

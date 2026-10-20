@@ -41,43 +41,69 @@
   </section>
   <footer class="statusbar"><div><span id="mode" class="mode">NORMAL</span><span id="save-status">Loading</span><span id="agent-status" role="status" aria-live="polite"></span></div><div><span id="words">0 words</span><span id="cursor">Ln 1, Col 1</span><span id="filetype" class="filetype">Markdown</span></div></footer>
   <dialog id="settings" aria-labelledby="settings-title">
-    <div class="dialog-heading"><h1 id="settings-title">Settings</h1><button id="close-settings" aria-label="Close settings">Close</button></div>
-    <label class="setting setting-select" for="editor-theme">Editor theme
-      <select id="editor-theme" aria-describedby="editor-theme-description"></select>
-    </label>
-    <p id="editor-theme-description">Choose a CodeMirror-compatible syntax and editor theme. GitHub (system) follows the host's colour mode.</p>
-    <label class="setting"><input id="relative-line-numbers" type="checkbox" aria-describedby="relative-line-numbers-description"> Relative line numbers</label>
-    <p id="relative-line-numbers-description">Show distances from the cursor line. The current line keeps its absolute number. Applies to all files and is saved across sessions.</p>
-    <label class="setting"><input id="agent-vim-mode" type="checkbox" aria-describedby="agent-vim-mode-description"> Vim mode in Agent panel</label>
-    <p id="agent-vim-mode-description">Use Vim editing in agent prompts and batch comments. When disabled, a single Esc closes the panel. The main editor always uses Vim.</p>
-    <p id="settings-status" role="status" aria-live="polite"></p>
+    <div class="settings-header">
+      <h1 id="settings-title">Settings</h1>
+      <button id="close-settings" type="button" aria-label="Close settings"><svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg></button>
+    </div>
+    <div class="settings-body">
+      <div class="setting-field">
+        <label for="editor-theme">Editor theme</label>
+        <select id="editor-theme" aria-describedby="editor-theme-description"></select>
+        <p id="editor-theme-description">Choose a CodeMirror-compatible syntax and editor theme. GitHub (system) follows the host's colour mode.</p>
+      </div>
+      <div class="setting-field setting-checkbox">
+        <input id="relative-line-numbers" type="checkbox" aria-describedby="relative-line-numbers-description">
+        <label for="relative-line-numbers">Relative line numbers</label>
+        <p id="relative-line-numbers-description">Show distances from the cursor line. The current line keeps its absolute number. Applies to all files and is saved across sessions.</p>
+      </div>
+      <div class="setting-field setting-checkbox">
+        <input id="show-keyboard-shortcut-indicators" type="checkbox" aria-describedby="show-keyboard-shortcut-indicators-description">
+        <label for="show-keyboard-shortcut-indicators">Show keyboard shortcut indicators</label>
+        <p id="show-keyboard-shortcut-indicators-description">Show or hide keyboard shortcut hints across the canvas. This does not change which shortcuts work.</p>
+      </div>
+      <div class="setting-field setting-checkbox">
+        <input id="agent-vim-mode" type="checkbox" aria-describedby="agent-vim-mode-description">
+        <label for="agent-vim-mode">Vim mode in Agent panel</label>
+        <p id="agent-vim-mode-description">Use Vim editing in agent prompts and batch comments. When disabled, a single Esc closes the panel. The main editor always uses Vim.</p>
+      </div>
+    </div>
+    <div class="settings-footer">
+      <p id="settings-status" role="status" aria-live="polite"></p>
+      <div class="settings-actions"><button id="discard-settings" type="button" disabled>Discard</button><button id="save-settings" type="button" disabled>Save</button></div>
+    </div>
   </dialog>
   <dialog id="help">
     <div class="dialog-heading"><div><span class="eyebrow">KEYBOARD FIRST</span><h1>Your familiar motions.</h1></div><button id="close-help" aria-label="Close shortcuts">×</button></div>
     <p>A text editor with Vim controls and a live preview for Markdown. Powered by CodeMirror, not a Neovim process.</p>
-    <div class="shortcut-grid">
-      <kbd>h j k l</kbd><span>Move the cursor</span><kbd>w b e</kbd><span>Move between words</span>
-      <kbd>i / a / o</kbd><span>Enter insert mode</span><kbd>Esc / Ctrl+[</kbd><span>Return to normal mode</span>
-      <kbd>v / V / Ctrl+v</kbd><span>Visual / line / block selection</span><kbd>ciw / diw</kbd><span>Change / delete inner word</span>
-      <kbd>yy / p</kbd><span>Yank a line / paste</span><kbd>u / Ctrl+r</kbd><span>Undo / redo</span>
-      <kbd>/ / n / N</kbd><span>Search / next / previous</span><kbd>.</kbd><span>Repeat the last change</span>
-      <kbd>qa ... q / @a</kbd><span>Record / replay a macro</span><kbd>:w / Cmd/Ctrl+s</kbd><span>Retry / flush automatic saving</span>
-    </div>
-    <span class="eyebrow">SEND TO AGENT</span>
-    <div class="shortcut-grid">
-      <kbd>Ctrl+i</kbd><span>Prompt the agent about the cursor line or selection</span><kbd>Enter</kbd><span>Send this prompt now, independently of the pending batch</span>
-      <kbd>Ctrl+Enter</kbd><span>Add the prompt to the batch</span><kbd>Shift+Enter</kbd><span>New line in the prompt</span>
-      <kbd>Ctrl+Shift+Enter / :AgentSend</kbd><span>Send the whole batch</span><kbd>Esc Esc / :AgentDiscard</kbd><span>Cancel the prompt / discard the batch</span>
-    </div>
-    <span class="eyebrow">FILE EXPLORER</span>
-    <div class="shortcut-grid">
-      <kbd>Ctrl+w h / :Ex</kbd><span>Focus the explorer</span><kbd>Ctrl+w l / Esc</kbd><span>Back to the editor</span>
-      <kbd>j / k</kbd><span>Next / previous entry</span><kbd>l / Enter / o</kbd><span>Open file or expand folder</span>
-      <kbd>h</kbd><span>Collapse folder / go to parent</span><kbd>Space</kbd><span>Open file, keep explorer focus</span>
-      <kbd>gg / G</kbd><span>First / last entry</span><kbd>Ctrl+d / Ctrl+u</kbd><span>Half page down / up</span>
-      <kbd>R</kbd><span>Refresh tree</span><kbd>q / :Lex</kbd><span>Hide / toggle explorer</span>
-      <kbd>:e path</kbd><span>Open a file relative to the root</span><kbd>Click</kbd><span>Open file / toggle folder</span>
-    </div>
+    <section class="shortcut-section">
+      <div class="shortcut-grid">
+        <kbd>h j k l</kbd><span>Move the cursor</span><kbd>w b e</kbd><span>Move between words</span>
+        <kbd>i / a / o</kbd><span>Enter insert mode</span><kbd>Esc / Ctrl+[</kbd><span>Return to normal mode</span>
+        <kbd>v / V / Ctrl+v</kbd><span>Visual / line / block selection</span><kbd>ciw / diw</kbd><span>Change / delete inner word</span>
+        <kbd>yy / p</kbd><span>Yank a line / paste</span><kbd>u / Ctrl+r</kbd><span>Undo / redo</span>
+        <kbd>/ / n / N</kbd><span>Search / next / previous</span><kbd>.</kbd><span>Repeat the last change</span>
+        <kbd>qa ... q / @a</kbd><span>Record / replay a macro</span><kbd>:w / Cmd/Ctrl+s</kbd><span>Retry / flush automatic saving</span>
+      </div>
+    </section>
+    <section class="shortcut-section">
+      <span class="eyebrow">SEND TO AGENT</span>
+      <div class="shortcut-grid">
+        <kbd>Ctrl+i</kbd><span>Prompt the agent about the cursor line or selection</span><kbd>Enter</kbd><span>Send this prompt now, independently of the pending batch</span>
+        <kbd>Ctrl+Enter</kbd><span>Add the prompt to the batch</span><kbd>Shift+Enter</kbd><span>New line in the prompt</span>
+        <kbd>Ctrl+Shift+Enter / :AgentSend</kbd><span>Send the whole batch</span><kbd>Esc Esc / :AgentDiscard</kbd><span>Cancel the prompt / discard the batch</span>
+      </div>
+    </section>
+    <section class="shortcut-section">
+      <span class="eyebrow">FILE EXPLORER</span>
+      <div class="shortcut-grid">
+        <kbd>Ctrl+w h / :Ex</kbd><span>Focus the explorer</span><kbd>Ctrl+w l / Esc</kbd><span>Back to the editor</span>
+        <kbd>j / k</kbd><span>Next / previous entry</span><kbd>l / Enter / o</kbd><span>Open file or expand folder</span>
+        <kbd>h</kbd><span>Collapse folder / go to parent</span><kbd>Space</kbd><span>Open file, keep explorer focus</span>
+        <kbd>gg / G</kbd><span>First / last entry</span><kbd>Ctrl+d / Ctrl+u</kbd><span>Half page down / up</span>
+        <kbd>R</kbd><span>Refresh tree</span><kbd>q / :Lex</kbd><span>Hide / toggle explorer</span>
+        <kbd>:e path</kbd><span>Open a file relative to the root</span><kbd>Click</kbd><span>Open file / toggle folder</span>
+      </div>
+    </section>
     <div class="help-note">Edits save to disk automatically. Files changed externally reload automatically, replacing unsynced edits. Lua configuration and Neovim plugins are not loaded. Browser/app shortcuts may take precedence.</div>
   </dialog>
 </body>

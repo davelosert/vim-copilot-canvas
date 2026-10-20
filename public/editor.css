@@ -205,13 +205,37 @@ dialog::backdrop { background: #0005; }
 .eyebrow { color: var(--editor-accent); font: 10px var(--font-mono, monospace); letter-spacing: 1.5px; }
 dialog h1 { font-size: 24px; margin: 6px 0; letter-spacing: -.6px; }
 dialog p, .help-note { font-size: 12px; color: var(--editor-muted); }
-.setting { display: flex; align-items: center; gap: 8px; margin-top: 24px; cursor: pointer; }
-.setting input { accent-color: var(--editor-accent); }
-.setting-select { align-items: center; justify-content: space-between; gap: 16px; }
-.setting-select select { min-width: 200px; max-width: 100%; padding: 7px 10px; border: 1px solid var(--editor-border); border-radius: 6px; background: var(--editor-surface); color: var(--editor-text); font: inherit; }
+#settings { padding: 0; width: min(480px, calc(100vw - 32px)); border-color: var(--borderColor-default, var(--editor-border)); border-radius: var(--borderRadius-large, 12px); background: var(--bgColor-default, var(--editor-canvas)); color: var(--fgColor-default, var(--editor-text)); box-shadow: var(--shadow-floating-large, 0 8px 24px #0003); }
+.settings-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 24px; border-bottom: 1px solid var(--borderColor-muted, var(--editor-border)); }
+#settings-title { margin: 0; font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: normal; }
+#close-settings { display: grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--fgColor-muted, var(--editor-muted)); }
+#close-settings:hover { background: var(--control-transparent-bgColor-hover, var(--editor-soft)); color: var(--fgColor-default, var(--editor-text)); }
+.settings-body { display: flex; flex-direction: column; gap: 24px; padding: 24px; }
+.setting-field { display: grid; gap: 8px; min-width: 0; }
+.setting-field label { font-size: 14px; line-height: 20px; font-weight: 600; cursor: pointer; }
+#settings .setting-field p { margin: 0; color: var(--fgColor-muted, var(--editor-muted)); font-size: 12px; line-height: 18px; }
+.setting-field select { width: 100%; min-height: 32px; padding: 5px 12px; border: 1px solid var(--control-borderColor-rest, var(--editor-border)); border-radius: var(--borderRadius-medium, 6px); background: var(--control-bgColor-rest, var(--editor-surface)); color: inherit; font: inherit; font-size: 14px; line-height: 20px; box-shadow: 0 1px 0 #0000000a; }
+.setting-field select:hover { background-color: var(--control-bgColor-hover, var(--editor-soft)); }
+.setting-field select:disabled { cursor: default; opacity: .5; }
+.setting-checkbox { grid-template-columns: 16px minmax(0, 1fr); column-gap: 8px; row-gap: 4px; }
+.setting-checkbox input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--bgColor-accent-emphasis, var(--editor-accent)); cursor: pointer; }
+.setting-checkbox p { grid-column: 2; }
+#settings :is(button, select, input):focus-visible { outline: 2px solid var(--focus-outlineColor, var(--editor-accent)); outline-offset: 2px; }
+.settings-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--borderColor-muted, var(--editor-border)); }
+#settings-status { flex: 1 1 120px; min-width: 0; min-height: 18px; margin: 0; font-size: 12px; line-height: 18px; color: var(--fgColor-muted, var(--editor-muted)); overflow-wrap: anywhere; }
+.settings-actions { display: flex; gap: 8px; margin-left: auto; }
+.settings-actions button { min-height: 32px; padding: 5px 12px; font-size: 14px; line-height: 20px; font-weight: 500; border-color: var(--button-default-borderColor-rest, var(--editor-border)); background: var(--button-default-bgColor-rest, var(--editor-surface)); box-shadow: 0 1px 0 #0000000a; }
+.settings-actions button:hover:not(:disabled) { background: var(--button-default-bgColor-hover, var(--editor-soft)); }
+#save-settings { border-color: var(--button-primary-borderColor-rest, #1f232826); background: var(--button-primary-bgColor-rest, #1f883d); color: var(--button-primary-fgColor-rest, #fff); }
+#save-settings:hover:not(:disabled) { background: var(--button-primary-bgColor-hover, #1a7f37); }
 .shortcut-grid { display: grid; grid-template-columns: 145px 1fr; gap: 12px 18px; margin: 24px 0; align-items: center; }
 .shortcut-grid kbd { background: var(--editor-soft); border: 1px solid var(--editor-border); border-radius: 4px; padding: 5px 8px; width: fit-content; }
 .shortcut-grid span { font-size: 12px; }
+:root[data-show-keyboard-shortcut-indicators="false"] .explorer-hint,
+:root[data-show-keyboard-shortcut-indicators="false"] .agent-actions kbd,
+:root[data-show-keyboard-shortcut-indicators="false"] .review-actions kbd,
+:root[data-show-keyboard-shortcut-indicators="false"] .agent-hint,
+:root[data-show-keyboard-shortcut-indicators="false"] .shortcut-section { display: none !important; }
 .help-note { border-top: 1px solid var(--editor-border); padding-top: 16px; }
 @media (max-width: 700px) {
   #shell, #shell[data-sidebar="closed"] { grid-template-columns: minmax(0, 1fr); }
