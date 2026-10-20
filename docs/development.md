@@ -45,7 +45,7 @@ Run `npm run build:check` to rebuild and reject any modified, deleted, staged, o
 
 ## Releases
 
-We use [Changesets](https://changesets.dev/) to manage releases. Every pull request with a user-facing change must include a changeset; documentation, tests, and maintenance-only changes may omit one.
+We use [Changesets](https://changesets.dev/) to manage releases. Every pull request must include a changeset, including documentation, tests, and maintenance-only changes. Use `npm run changeset -- add --empty` when a change does not require a release.
 
 Run `npm run changeset`, select `vim-copilot-canvas`, choose a patch, minor, or major bump, and write a user-facing summary. Commit the generated `.changeset/*.md` file with the change.
 
