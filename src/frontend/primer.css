@@ -1,0 +1,22 @@
+@import "@primer/css/dist/primitives.css";
+@import "@primer/primitives/dist/css/functional/themes/light.css";
+@import "@primer/primitives/dist/css/functional/themes/dark.css";
+@import "@primer/css/dist/buttons.css";
+
+/* Keep Primer controls in the selected editor palette without changing host theme attributes. */
+.primer-scope[data-color-mode] {
+  --fgColor-default: var(--editor-text);
+  --fgColor-muted: var(--editor-muted);
+  --bgColor-default: var(--editor-canvas);
+  --bgColor-muted: var(--editor-surface);
+  --borderColor-default: var(--editor-border);
+  --focus-outlineColor: var(--editor-accent);
+  --button-default-fgColor-rest: var(--editor-text);
+  --button-default-bgColor-rest: var(--editor-surface);
+  --button-default-bgColor-hover: var(--editor-soft);
+  --button-default-bgColor-active: var(--editor-soft);
+  --button-default-borderColor-rest: var(--editor-border);
+  --button-default-borderColor-hover: var(--editor-border);
+  --button-default-borderColor-active: var(--editor-border);
+  font-family: var(--font-sans, var(--fontStack-sansSerif));
+}
