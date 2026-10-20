@@ -123,11 +123,11 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
         },
         focus() { if (!disposed) view?.focus(); },
         measure() { if (!disposed) view?.requestMeasure(); },
-        jumpTo(line) {
+        jumpTo(line, { focus = true } = {}) {
             if (disposed || !view) return;
             const target = view.state.doc.line(Math.max(1, Math.min(line, view.state.doc.lines)));
             view.dispatch({ selection: { anchor: target.from }, scrollIntoView: true });
-            view.focus();
+            if (focus) view.focus();
         },
         dispose() {
             if (disposed) return;
