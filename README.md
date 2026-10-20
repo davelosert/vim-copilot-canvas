@@ -38,13 +38,13 @@ Rebuild after frontend changes. Reload extensions after backend or provider chan
 
 ### Releases
 
-Releases use [Changesets](https://changesets.dev/). This is a GitHub-distributed plugin, not an npm package: `private: true` prevents npm publication. Before the first release, package and plugin versions use a `0.0.0` baseline. The initial major changeset prepares the first `1.0.0` release.
+We use [Changesets](https://changesets.dev/) to manage releases. Every pull request with a user-facing change must include a changeset; documentation, tests, and maintenance-only changes may omit one.
 
-For a user-facing change, run `npm run changeset`, select `vim-copilot-canvas`, choose a patch, minor, or major bump, and write a user-facing summary. Commit the generated `.changeset/*.md` file with the change. Documentation, tests, and maintenance-only changes may omit a changeset; CI validates existing changesets but does not require one on every PR.
+Run `npm run changeset`, select `vim-copilot-canvas`, choose a patch, minor, or major bump, and write a user-facing summary. Commit the generated `.changeset/*.md` file with the change.
 
-On pushes to `main`, the **Release** workflow creates or updates a `chore: release plugin` PR. Its `npm run version:release` command consumes pending changesets, generates `CHANGELOG.md`, and synchronizes `package.json`, `package-lock.json`, `plugin.json`, and the marketplace catalog's plugin and metadata versions. Do not bump these versions independently.
+On pushes to `main`, the **Release** workflow creates or updates a release PR, which applies pending changesets and updates the version files and changelog. Do not bump these versions independently.
 
-Merge that PR once its required **Tests** check passes. The next release run uses `changeset publish` to tag the private package and the Changesets action creates a `vX.Y.Z` GitHub release at the merged commit, using that version's changelog entry as release notes. GitHub provides source archives containing the already-committed production assets; the workflow does not publish to npm or change how the Copilot App installs this repository. Existing releases are left unchanged on reruns. **Actions > Release > Run workflow** on `main` can retry an interrupted run. If a run pushed a tag but failed before creating its release, create the missing GitHub release from that tag and its changelog entry manually; Changesets skips versions that are already tagged.
+Once the release PR passes **Tests**, merge it. The next release run creates a GitHub release. Rerun **Actions > Release** on `main` to retry an interrupted run.
 
 `npm run release:check` verifies version consistency locally and in CI. `npm run version:release` is normally automation-owned; use it locally only to debug versioning, and inspect all generated changes before committing.
 
