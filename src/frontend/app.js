@@ -14,7 +14,7 @@ import { isMarkdown } from "./markdown.js";
 /** Compose one panel. The synchronous handle permits disposal even during startup. */
 export function mountApp({ root = document, window: win = root.ownerDocument?.defaultView ?? root.defaultView,
     api = createApiClient({ token: win.location.hash.slice(1), fetch: win.fetch.bind(win) }),
-    confirm = win.confirm.bind(win), pollInterval = 2000 } = {}) {
+    confirm = win.confirm.bind(win), pollInterval = 2000, reloadCanvas = () => win.location.reload() } = {}) {
     const doc = root.ownerDocument ?? root;
     const $ = (id) => {
         const element = root.querySelector(`[id="${id}"]`);
@@ -181,6 +181,25 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     });
     listen($("refresh-tree"), "click", () => explorer.refresh());
     listen($("collapse-tree"), "click", () => explorer.collapseAll());
+    const devReload = root.querySelector("#dev-reload-button");
+    if (devReload) listen(devReload, "click", () => {
+        if (devReload.disabled || !controller.getState().current) return;
+        devReload.disabled = true;
+        devReload.textContent = "Rebuilding...";
+        safe((async () => {
+            try {
+                await api("dev/reload", {});
+                if (disposed) return;
+                await controller.flushDraft();
+                if (!disposed) reloadCanvas();
+            } finally {
+                if (!disposed) {
+                    devReload.disabled = false;
+                    devReload.textContent = "Reload canvas";
+                }
+            }
+        })());
+    });
     const updateTheme = () => {
         if (disposed) return;
         if (editor.updateTheme(systemDark())) applyShellTheme();

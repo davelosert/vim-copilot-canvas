@@ -53,7 +53,7 @@ Use Node.js `^22.12.0 || ^24.0.0 || >=26.0.0`. `npm test` builds the production 
 
 Repository sessions discover `.github/extensions/vim-canvas-dev/extension.mjs`, which registers **Vim Copilot Canvas (Dev)** (`vim-markdown-dev`). Open it to run the backend and serve assets from the current checkout.
 
-Rebuild after frontend changes. Reload extensions after backend or provider changes. Dev drafts and pending batches are stored separately per session; explicit file saves still update the files in the checkout.
+Click **Reload canvas** in the dev toolbar after frontend changes to rebuild assets from the current checkout and refresh the panel. Install dependencies with `npm ci` first. The button preserves the current document draft before refreshing; rebuild failures appear in the canvas and leave the editor open for a retry. Reload extensions after backend or provider changes. Dev drafts and pending batches are stored separately per session; explicit file saves still update the files in the checkout.
 
 ### Releases
 

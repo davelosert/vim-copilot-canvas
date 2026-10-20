@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const { joinSession } = vi.hoisted(() => ({ joinSession: vi.fn() }));
+const { joinSession, execFile } = vi.hoisted(() => ({ joinSession: vi.fn(), execFile: vi.fn() }));
+vi.mock("node:child_process", () => ({ execFile }));
 vi.mock("@github/copilot-sdk/extension", () => ({
     joinSession,
     createCanvas: (definition) => definition,
@@ -45,6 +46,27 @@ test("dev entry waits for session storage and uses the current checkout", async 
     expect((await action("list_files")).entries.some(({ name }) => name === "src")).toBe(true);
     expect((await action("open_file", { path: "resources/welcome.md" })).name).toBe("welcome.md");
     expect(await (await fetch(new URL(url).origin + "/")).text()).toContain("<!doctype html>");
+    expect(await (await fetch(new URL(url).origin + "/")).text()).toContain('id="dev-reload-button"');
+    const reload = (headers = {}) => fetch(new URL("/api/dev/reload", url), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Editor-Token": new URL(url).hash.slice(1), ...headers },
+        body: "{}",
+    });
+    expect((await reload({ "X-Editor-Token": "" })).status).toBe(403);
+    expect((await reload({ Origin: "https://example.com" })).status).toBe(403);
+    expect(execFile).not.toHaveBeenCalled();
+    let finishBuild;
+    execFile.mockImplementation((_node, _args, _options, callback) => { finishBuild = callback; });
+    const rebuilding = reload();
+    await vi.waitFor(() => expect(execFile).toHaveBeenCalledOnce());
+    expect(execFile.mock.lastCall.slice(0, 3)).toEqual([process.execPath, [join(root, "scripts/build.mjs")], { cwd: root }]);
+    finishBuild(new Error("Build failed: syntax error"));
+    const failure = await rebuilding;
+    expect(failure.status).toBe(500);
+    expect((await failure.json()).message).toContain("Build failed: syntax error");
+    execFile.mockImplementation((_node, _args, _options, callback) => callback(null, "", ""));
+    expect((await reload()).status).toBe(200);
+    execFile.mockReset();
     expect((await stat(join(workspacePath, "vim-canvas-dev", "drafts"))).isDirectory()).toBe(true);
 });
 

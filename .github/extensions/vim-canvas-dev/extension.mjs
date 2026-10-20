@@ -1,5 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import { createProvider, createVimCanvas } from "../../../src/backend/canvas-provider.mjs";
 
@@ -7,6 +9,13 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 const identity = { canvasId: "vim-markdown-dev", displayName: "Vim Copilot Canvas (Dev)" };
 const sdk = { createCanvas: (definition) => definition, CanvasError };
 let provider;
+let rebuilding;
+
+function devReload() {
+    return rebuilding ??= promisify(execFile)(process.execPath, [join(root, "scripts/build.mjs")], { cwd: root })
+        .then(() => ({}))
+        .finally(() => { rebuilding = undefined; });
+}
 
 async function getProvider() {
     const session = await sessionReady;
@@ -14,7 +23,7 @@ async function getProvider() {
         throw new CanvasError("dev_storage_unavailable", "The dev canvas requires session workspace storage.");
     }
     return provider ??= createProvider({
-        root, sdk, ...identity,
+        root, sdk, ...identity, devReload,
         artifactsDir: join(session.workspacePath, "vim-canvas-dev"),
         sendMessage: (message) => session.send(message),
     });
