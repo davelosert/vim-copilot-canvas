@@ -180,7 +180,7 @@ test("shortcut changes preview without disk writes and persist only on Save, wit
         assert.equal(await control.isEnabled(), true);
         assert.equal(await page.locator("#settings-status").textContent(), "Unsaved changes.");
         await assert.rejects(readFile(settingsFile, "utf8"), { code: "ENOENT" });
-        assert.equal(await page.locator(".explorer-hint").isVisible(), false);
+        assert.equal(await page.locator("#files-panel .explorer-hint").isVisible(), false);
         assert.deepEqual(await page.locator("#settings").boundingBox(), before);
         await page.locator("#save-settings").click();
         assert.equal(await page.locator("#settings-status").textContent(), "Saving settings...");
@@ -197,7 +197,7 @@ test("shortcut changes preview without disk writes and persist only on Save, wit
     }
     await page.reload();
     await page.locator(".cm-editor").waitFor();
-    assert.equal(await page.locator(".explorer-hint").isVisible(), false);
+    assert.equal(await page.locator("#files-panel .explorer-hint").isVisible(), false);
     assert.deepEqual(errors, []);
 });
 
@@ -215,11 +215,11 @@ test.each(["Discard", "Close settings", "Escape"])("%s reverts previews without 
     await page.locator("#editor-theme").selectOption("nord");
     await page.locator("#relative-line-numbers").uncheck();
     await page.locator("#show-keyboard-shortcut-indicators").uncheck();
-    assert.equal(await page.locator(".explorer-hint").isVisible(), false);
+    assert.equal(await page.locator("#files-panel .explorer-hint").isVisible(), false);
     assert.equal(await readFile(settingsFile, "utf8"), saved);
     if (action === "Escape") await page.keyboard.press("Escape");
     else await page.getByRole("button", { name: action, exact: true }).click();
-    assert.equal(await page.locator(".explorer-hint").isVisible(), true);
+    assert.equal(await page.locator("#files-panel .explorer-hint").isVisible(), true);
     assert.equal(await page.locator("#editor-theme").inputValue(), "dracula");
     assert.equal(await page.locator("#relative-line-numbers").isChecked(), true);
     assert.equal(await page.locator(".cm-editor").evaluate((element) => getComputedStyle(element).backgroundColor), "rgb(40, 42, 54)");
@@ -227,7 +227,7 @@ test.each(["Discard", "Close settings", "Escape"])("%s reverts previews without 
     assert.deepEqual(writes, []);
     await page.reload();
     await page.locator(".cm-editor").waitFor();
-    assert.equal(await page.locator(".explorer-hint").isVisible(), true);
+    assert.equal(await page.locator("#files-panel .explorer-hint").isVisible(), true);
     assert.deepEqual(errors, []);
 });
 

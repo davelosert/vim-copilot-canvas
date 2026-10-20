@@ -26,7 +26,7 @@ export function installationPaths(root, artifactsDir = join(root, "artifacts")) 
  * @param {(message: object) => Promise<string>} [options.sendMessage]
  * @param {typeof defaultStartServer} [options.startServer]
  */
-export function createPanels({ store, root, sendMessage, startServer = defaultStartServer }) {
+export function createPanels({ store, root, sendMessage, devReload, startServer = defaultStartServer }) {
     const servers = new Map();
     return {
         get(instanceId) { return servers.get(instanceId); },
@@ -52,7 +52,7 @@ export function createPanels({ store, root, sendMessage, startServer = defaultSt
                     document = await store.open();
                     workspace = new Workspace(dirname(document.path), { ignore: ["drafts"] });
                 }
-                value = Object.assign(await startServer({ store, workspace, document, root, sendMessage }), { key });
+                value = Object.assign(await startServer({ store, workspace, document, root, sendMessage, devReload }), { key });
                 servers.set(instanceId, value);
             }
             return { title: `Vim · ${basename(value.workspace.root)}`, url: value.url };
@@ -153,10 +153,10 @@ export function createVimCanvas({ createCanvas, CanvasError, store, panels,
  * @param {string} [options.displayName]
  * @param {string} [options.artifactsDir] External draft/review storage directory.
  */
-export function createProvider({ root, sdk, sendMessage, startServer, canvasId, displayName, artifactsDir }) {
+export function createProvider({ root, sdk, sendMessage, startServer, canvasId, displayName, artifactsDir, devReload }) {
     const paths = installationPaths(root, artifactsDir);
     const store = new DocumentStore(paths.artifacts, { welcomePath: paths.welcome });
-    const panels = createPanels({ store, root, sendMessage, startServer });
+    const panels = createPanels({ store, root, sendMessage, startServer, devReload });
     const canvas = createVimCanvas({ createCanvas: sdk.createCanvas, CanvasError: sdk.CanvasError, store, panels, canvasId, displayName });
     return { paths, store, panels, canvas };
 }

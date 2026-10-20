@@ -24,8 +24,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Install Chromium headless shell
-        run: npx playwright install --only-shell chromium
+      - name: Install Chromium headless shell and WebKit
+        run: npx playwright install --only-shell chromium webkit
       - name: Build frontend
         run: npm run build
       - name: Run all tests

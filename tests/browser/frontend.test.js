@@ -78,9 +78,11 @@ function fakeApi() {
     return { api, files };
 }
 
-async function fixture(options = {}) {
+async function fixture({ dev = false, ...options } = {}) {
     const body = new DOMParser().parseFromString(markup, "text/html").body;
     document.body.innerHTML = body.innerHTML;
+    if (dev) document.querySelector(".controls").insertAdjacentHTML("afterbegin",
+        '<button id="dev-reload-button" type="button">Reload canvas</button>');
     const style = document.createElement("style");
     style.textContent = stylesheet;
     document.body.prepend(style);
@@ -93,6 +95,9 @@ async function fixture(options = {}) {
 }
 const $ = (id) => document.getElementById(id);
 const key = (text) => userEvent.keyboard(text);
+async function showSidebar() {
+    if ($("shell").dataset.sidebar !== "open") await userEvent.click($("toggle-explorer"));
+}
 async function insert(app, text) {
     app.editor.focus();
     await key("i");
@@ -102,6 +107,55 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    it("rebuilds before reloading the dev canvas and blocks duplicate clicks", async () => {
+        const reloadCanvas = vi.fn();
+        const { app, api } = await fixture({ dev: true, reloadCanvas });
+        const build = deferred();
+        const original = api.getMockImplementation();
+        api.mockImplementation((path, input) => path === "dev/reload" ? build.promise : original(path, input));
+        const flush = vi.spyOn(app.controller, "flushDraft");
+        await userEvent.click($("dev-reload-button"));
+        expect($("dev-reload-button").disabled).toBe(true);
+        expect($("dev-reload-button").textContent).toBe("Rebuilding...");
+        $("dev-reload-button").click();
+        expect(api.mock.calls.filter(([path]) => path === "dev/reload")).toHaveLength(1);
+        expect(flush).not.toHaveBeenCalled();
+        expect(reloadCanvas).not.toHaveBeenCalled();
+        build.resolve({});
+        await expect.poll(() => reloadCanvas.mock.calls.length).toBe(1);
+        expect(flush).toHaveBeenCalledOnce();
+    });
+
+    it("keeps the editor open and allows retry after a dev rebuild failure", async () => {
+        const reloadCanvas = vi.fn();
+        const { api } = await fixture({ dev: true, reloadCanvas });
+        const original = api.getMockImplementation();
+        let failed = true;
+        api.mockImplementation((path, input) => {
+            if (path !== "dev/reload") return original(path, input);
+            return failed ? Promise.reject(new Error("Build failed: syntax error")) : Promise.resolve({});
+        });
+        await userEvent.click($("dev-reload-button"));
+        await expect.poll(() => $("notice-text").textContent).toContain("Build failed: syntax error");
+        expect($("dev-reload-button").disabled).toBe(false);
+        expect(reloadCanvas).not.toHaveBeenCalled();
+        failed = false;
+        await userEvent.click($("dev-reload-button"));
+        await expect.poll(() => reloadCanvas.mock.calls.length).toBe(1);
+    });
+
+    it("does not reload if preserving the draft fails", async () => {
+        const reloadCanvas = vi.fn();
+        const { app, api } = await fixture({ dev: true, reloadCanvas });
+        const original = api.getMockImplementation();
+        api.mockImplementation((path, input) => path === "dev/reload" ? Promise.resolve({}) : original(path, input));
+        vi.spyOn(app.controller, "flushDraft").mockRejectedValue(new Error("Draft conflict"));
+        await userEvent.click($("dev-reload-button"));
+        await expect.poll(() => $("notice-text").textContent).toContain("Draft conflict");
+        expect($("dev-reload-button").disabled).toBe(false);
+        expect(reloadCanvas).not.toHaveBeenCalled();
+    });
+
     const longMarkdown = Array.from({ length: 100 }, (_, index) =>
         `## Section ${index + 1}\n\nParagraph with **formatted text**, a [link](https://example.com), and enough words to wrap across several lines in the editor.\n\n- First item\n- Second item\n`).join("\n");
     const scrollProgress = (pane) => pane.scrollTop / (pane.scrollHeight - pane.clientHeight);
@@ -154,6 +208,127 @@ describe("mounted frontend with real CodeMirror", () => {
             held.resolve();
             observer.disconnect();
         }
+    });
+
+    it("shows Markdown headings in a separate outline tab and jumps to their exact source lines", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", [
+            "# **Title**", "", "## [Linked](https://example.com) `code`", "",
+            "```md", "# Not a heading", "```", "", "~~~", "## Also code", "~~~", "",
+            "    # Indented code", "", "Underlined", "----------", "",
+            "### Same", "", "### Same", "", "###### Deep", "", "Closing ###", "=======",
+        ].join("\r\n"));
+        await app.controller.reload();
+        await showSidebar();
+        await userEvent.click($("outline-tab"));
+        expect($("files-panel").hidden).toBe(true);
+        expect(getComputedStyle($("files-panel")).display).toBe("none");
+        expect($("outline-tab").getAttribute("aria-selected")).toBe("true");
+        expect($("outline-name").textContent).toBe("a.md");
+        const rows = [...$("outline").querySelectorAll(".outline-row")];
+        expect(rows.map((row) => row.querySelector(".tree-label").textContent)).toEqual([
+            "Title", "Linked code", "Underlined", "Same", "Same", "Deep", "Closing ###",
+        ]);
+        expect(rows.map((row) => Number(row.dataset.line))).toEqual([1, 3, 15, 18, 20, 22, 24]);
+        expect(rows.map((row) => row.querySelector(".outline-level").textContent)).toEqual(["H1", "H2", "H2", "H3", "H3", "H6", "H1"]);
+        expect(parseInt(rows[5].style.paddingLeft)).toBeGreaterThan(parseInt(rows[1].style.paddingLeft));
+        await userEvent.click(rows[4]);
+        expect(app.editor.view.state.doc.lineAt(app.editor.view.state.selection.main.head).number).toBe(20);
+        expect(app.editor.view.hasFocus).toBe(true);
+        expect(rows[4].getAttribute("aria-current")).toBe("location");
+
+        await showSidebar();
+        await userEvent.click($("files-tab"));
+        expect($("outline-panel").hidden).toBe(true);
+        expect($("tree").querySelector(".active").dataset.path).toBe("/work/a.md");
+        await userEvent.click($("outline-tab"));
+        expect($("outline").querySelectorAll(".outline-row")).toHaveLength(7);
+    });
+
+    it("updates the outline after local edits, undo, external reloads and file switches", async () => {
+        const { app, files } = await fixture();
+        await showSidebar();
+        await userEvent.click($("outline-tab"));
+        app.editor.view.dispatch({ changes: { from: app.editor.view.state.doc.length, insert: "\n\n## New **section**" } });
+        await expect.poll(() => $("outline").querySelectorAll(".outline-row").length).toBe(2);
+        expect($("outline").lastElementChild.querySelector(".tree-label").textContent).toBe("New section");
+        app.editor.focus();
+        await key("u");
+        await expect.poll(() => $("outline").querySelectorAll(".outline-row").length).toBe(1);
+        files.set("/work/a.md", "No headings");
+        await app.controller.reload();
+        expect($("outline").textContent).toBe("No headings in this document.");
+        expect($("outline").hasAttribute("aria-activedescendant")).toBe(false);
+        files.set("/work/a.md", "External title\n===\n\n## Updated");
+        await app.controller.reload();
+        expect($("outline").querySelectorAll(".outline-row")).toHaveLength(2);
+
+        await app.controller.open("/work/b.js");
+        expect($("outline-name").textContent).toBe("b.js");
+        expect($("outline").textContent).toBe("Outline is available for Markdown files.");
+        expect($("outline").hasAttribute("aria-activedescendant")).toBe(false);
+        await app.controller.open("/work/a.md");
+        expect($("outline").querySelectorAll(".outline-row")).toHaveLength(2);
+        expect($("outline-tab").getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("supports accessible sidebar tabs and Vim outline motions without losing outline focus", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", "# First\n\n## Second\n\n### Third");
+        await app.controller.reload();
+        await showSidebar();
+        $("files-tab").focus();
+        await key("{ArrowRight}");
+        expect(document.activeElement).toBe($("outline-tab"));
+        expect($("files-tab").tabIndex).toBe(-1);
+        await key("{ArrowDown}");
+        expect(document.activeElement).toBe($("outline"));
+        const selected = () => $("outline").querySelector('[aria-selected="true"]');
+        await key("j");
+        expect(selected().dataset.line).toBe("3");
+        await key(" ");
+        expect(document.activeElement).toBe($("outline"));
+        expect(app.editor.view.state.doc.lineAt(app.editor.view.state.selection.main.head).number).toBe(3);
+        await key("G");
+        expect(selected().dataset.line).toBe("5");
+        await key("gg");
+        expect(selected().dataset.line).toBe("1");
+        await key("{End}{ArrowUp}");
+        expect(selected().dataset.line).toBe("3");
+        await key("{Enter}");
+        expect(app.editor.view.hasFocus).toBe(true);
+        await key("{Control>}w{/Control}h");
+        expect(document.activeElement).toBe($("outline"));
+        await key("{Control>}w{/Control}l");
+        expect(app.editor.view.hasFocus).toBe(true);
+        await key("{Control>}w{/Control}h");
+        await key("q");
+        expect($("shell").dataset.sidebar).toBe("closed");
+        await userEvent.click($("toggle-explorer"));
+        expect(document.activeElement).toBe($("outline"));
+        await key("{Escape}");
+        expect(app.editor.view.hasFocus).toBe(true);
+        await showSidebar();
+        $("outline-tab").focus();
+        await key("{Home}");
+        expect(document.activeElement).toBe($("files-tab"));
+        expect($("files-panel").hidden).toBe(false);
+    });
+
+    it("reveals the source when jumping from preview-only and follows the editor's current section", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", "# First\n\nText\n\n## Next\n\nMore text");
+        await app.controller.reload();
+        app.editor.jumpTo(7);
+        await userEvent.click(document.querySelector('[data-layout="preview"]'));
+        await showSidebar();
+        await userEvent.click($("outline-tab"));
+        expect($("outline").querySelector('[aria-current="location"]').dataset.line).toBe("5");
+        await userEvent.click($("outline").firstElementChild);
+        expect($("workspace").dataset.layout).toBe("split");
+        expect(app.editor.view.hasFocus).toBe(true);
+        expect(app.editor.view.state.selection.main.head).toBe(0);
+        expect($("outline").querySelector('[aria-current="location"]').dataset.line).toBe("1");
     });
 
     it("syncs scrolling in either direction across different content heights without feedback", async () => {

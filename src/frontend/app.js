@@ -3,6 +3,7 @@ import { createDocumentController } from "./document-controller.js";
 import { createEditor } from "./editor.js";
 import { createAgent } from "./agent.js";
 import { createExplorer } from "./explorer.js";
+import { createOutline } from "./outline.js";
 import { createCommands } from "./commands.js";
 import { createPreview } from "./preview.js";
 import { createReview } from "./review.js";
@@ -14,7 +15,7 @@ import { isMarkdown } from "./markdown.js";
 /** Compose one panel. The synchronous handle permits disposal even during startup. */
 export function mountApp({ root = document, window: win = root.ownerDocument?.defaultView ?? root.defaultView,
     api = createApiClient({ token: win.location.hash.slice(1), fetch: win.fetch.bind(win) }),
-    confirm = win.confirm.bind(win), pollInterval = 2000 } = {}) {
+    confirm = win.confirm.bind(win), pollInterval = 2000, reloadCanvas = () => win.location.reload() } = {}) {
     const doc = root.ownerDocument ?? root;
     const $ = (id) => {
         const element = root.querySelector(`[id="${id}"]`);
@@ -22,7 +23,8 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         return element;
     };
     const elements = (names) => Object.fromEntries(Object.entries(names).map(([key, id]) => [key, $(id)]));
-    let disposed = false, interval, controller, shell, review, commands, scrollSync;
+    let disposed = false, interval, controller, shell, review, commands, scrollSync, outline;
+    let sidebarView = "files";
     const handlers = new AbortController();
     const listen = (element, type, fn) => element.addEventListener(type, fn, { signal: handlers.signal });
     const report = (error) => { if (!disposed) shell.error(error); };
@@ -51,8 +53,8 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     });
     const editor = createEditor({
         parent: $("editor"), extensions: agent.extensions, systemDark: systemDark(),
-        onEdit: () => { preview.edited(); controller.edited(); },
-        onSave: save, onCursor: (position) => shell.cursor(position),
+        onEdit: () => { preview.edited(); outline.edited(); controller.edited(); },
+        onSave: save, onCursor: (position) => { shell.cursor(position); outline?.cursor(position); },
         onMode: (mode, subMode) => shell.mode(mode, subMode),
         onLanguage: (name, markdown) => shell.language(name, markdown), onError: report,
     });
@@ -95,7 +97,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         if (!disposed && opened && focusEditor) editor.focus();
         return opened;
     };
-    const focusExplorer = () => { shell.setSidebar(true); explorer.focus(); };
+    const focusExplorer = () => { shell.setSidebar(true); (sidebarView === "files" ? explorer : outline).focus(); };
     shell = createShell({
         elements: {
             ...elements({
@@ -137,6 +139,42 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         onLeave: () => shell.focusEditor(),
         onHide: () => { shell.setSidebar(false); editor.focus(); }, onError: report,
     });
+    outline = createOutline({
+        list: $("outline"), name: $("outline-name"), getDocument: () => editor.view?.state.doc,
+        onJump: (line, { focusEditor }) => {
+            shell.revealSource();
+            editor.jumpTo(line, { focus: focusEditor });
+            if (focusEditor) shell.focusEditor();
+        },
+        onLeave: () => shell.focusEditor(),
+        onHide: () => { shell.setSidebar(false); editor.focus(); },
+    });
+    const sidebarViews = ["files", "outline"];
+    const selectSidebar = (view) => {
+        sidebarView = view;
+        for (const name of sidebarViews) {
+            const selected = name === view;
+            $(`${name}-tab`).setAttribute("aria-selected", String(selected));
+            $(`${name}-tab`).tabIndex = selected ? 0 : -1;
+            $(`${name}-panel`).hidden = !selected;
+        }
+    };
+    for (const view of sidebarViews) {
+        const tab = $(`${view}-tab`);
+        listen(tab, "click", () => selectSidebar(view));
+        listen(tab, "keydown", (event) => {
+            const next = { ArrowLeft: sidebarViews[1 - sidebarViews.indexOf(view)], ArrowRight: sidebarViews[1 - sidebarViews.indexOf(view)],
+                Home: "files", End: "outline" }[event.key];
+            if (next) {
+                event.preventDefault();
+                selectSidebar(next);
+                $(`${next}-tab`).focus();
+            } else if (event.key === "ArrowDown") {
+                event.preventDefault();
+                focusExplorer();
+            }
+        });
+    }
     const preferences = createSettings({
         elements: elements({ dialog: "settings", button: "settings-button", close: "close-settings", relative: "relative-line-numbers",
             shortcuts: "show-keyboard-shortcut-indicators", theme: "editor-theme", status: "settings-status",
@@ -167,6 +205,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             commands.attach();
             shell.document(snapshot);
             preview.document(snapshot);
+            outline.document(snapshot);
             review.markers(snapshot.path);
             if (options.kind === "switch") safe(explorer.reveal(snapshot.path));
         },
@@ -181,6 +220,25 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     });
     listen($("refresh-tree"), "click", () => explorer.refresh());
     listen($("collapse-tree"), "click", () => explorer.collapseAll());
+    const devReload = root.querySelector("#dev-reload-button");
+    if (devReload) listen(devReload, "click", () => {
+        if (devReload.disabled || !controller.getState().current) return;
+        devReload.disabled = true;
+        devReload.textContent = "Rebuilding...";
+        safe((async () => {
+            try {
+                await api("dev/reload", {});
+                if (disposed) return;
+                await controller.flushDraft();
+                if (!disposed) reloadCanvas();
+            } finally {
+                if (!disposed) {
+                    devReload.disabled = false;
+                    devReload.textContent = "Reload canvas";
+                }
+            }
+        })());
+    });
     const updateTheme = () => {
         if (disposed) return;
         if (editor.updateTheme(systemDark())) applyShellTheme();
@@ -222,7 +280,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             win.clearInterval(interval);
             handlers.abort(); observer.disconnect();
             darkQuery.removeEventListener("change", updateTheme);
-            controller.dispose(); commands.dispose(); explorer.dispose(); preferences.dispose();
+            controller.dispose(); commands.dispose(); explorer.dispose(); outline.dispose(); preferences.dispose();
             review.dispose(); preview.dispose(); shell.dispose();
             scrollSync?.dispose();
             editor.dispose(); agent.dispose();

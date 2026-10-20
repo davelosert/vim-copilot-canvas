@@ -59,6 +59,9 @@ export function createShell({ elements: e, window, editor, readText, onReload, o
     if (window.matchMedia("(max-width: 700px)").matches) setSidebar(false);
     return {
         setSidebar, sidebarOpen,
+        revealSource() {
+            if (markdown && markdownLayout === "preview") { markdownLayout = "split"; layout(); }
+        },
         focusEditor() { if (window.matchMedia("(max-width: 700px)").matches) setSidebar(false); editor.focus(); },
         language(name, enabled) {
             markdown = enabled;

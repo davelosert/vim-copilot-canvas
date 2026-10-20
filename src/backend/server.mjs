@@ -42,7 +42,7 @@ async function readJson(req) {
  * token authentication and JSON decoding. Application logic lives in `routes`.
  * @param {{ root: string, routes: { get: Map, post: Map } }} options root is the installation root.
  */
-export async function listen({ root, routes }) {
+export async function listen({ root, routes, devReload }) {
     const token = randomBytes(32).toString("hex");
     let origin;
     const server = createServer(async (req, res) => {
@@ -62,7 +62,11 @@ export async function listen({ root, routes }) {
             const url = new URL(req.url, origin);
             const asset = assetFor(url.pathname);
             if (req.method === "GET" && asset) {
-                const body = await readFile(join(root, asset[0]));
+                let body = await readFile(join(root, asset[0]));
+                if (url.pathname === "/" && devReload) {
+                    body = body.toString().replace("<!-- dev-controls -->",
+                        '<button id="dev-reload-button" type="button" title="Rebuild frontend assets and reload this canvas">Reload canvas</button>');
+                }
                 res.writeHead(200, { "Content-Type": asset[1] });
                 return res.end(body);
             }
@@ -105,10 +109,11 @@ export async function listen({ root, routes }) {
  * @param {object} options
  * @param {string} options.root Installation root containing public/ and assets/.
  */
-export async function startServer({ store, workspace, document, root, sendMessage,
+export async function startServer({ store, workspace, document, root, sendMessage, devReload,
     reviews = new ReviewStore(join(store.artifacts, "reviews")), settings = new SettingsStore() }) {
     const routes = createRoutes({ store, workspace, document, reviews, settings, sendMessage });
-    const transport = await listen({ root, routes });
+    if (devReload) routes.post.set("/api/dev/reload", devReload);
+    const transport = await listen({ root, routes, devReload });
     return {
         state: routes.state, workspace,
         get document() { return routes.document; },
