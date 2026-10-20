@@ -1,6 +1,7 @@
 import { EditorError } from "./errors.mjs";
 import { composeReview, summarize } from "./review-store.mjs";
 import { buildAttachments, createDelivery, validPrompt } from "./agent-delivery.mjs";
+import { readImage } from "./images.mjs";
 
 /**
  * Application routes for one editor panel. Owns the panel's active document
@@ -50,6 +51,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
     ]);
 
     const post = new Map([
+        ["/api/image", documentInput((target, input) => readImage(workspace, target.path, input.source))],
         ["/api/draft", revisionInput((target, input) => store.update(target, input.content, input.revision))],
         ["/api/save", revisionInput((target, input) => store.save(target, input.revision))],
         ["/api/reload", revisionInput((target, input) => store.reload(target, input.revision, input.diskHash))],

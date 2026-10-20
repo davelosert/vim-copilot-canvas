@@ -21,7 +21,7 @@ test("HTTP endpoints require token and same origin; assets are local", async () 
     assert.equal((await response.json()).content, "# Original\n");
     const asset = await fetch(new URL("/editor.js", url));
     assert.equal(asset.status, 200);
-    assert.match(asset.headers.get("content-security-policy"), /img-src 'none'/);
+    assert.match(asset.headers.get("content-security-policy"), /img-src data:;/);
     const primer = await fetch(new URL("/primer.css", url));
     assert.equal(primer.status, 200);
     assert.match(primer.headers.get("content-type"), /^text\/css/);

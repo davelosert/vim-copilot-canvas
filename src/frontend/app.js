@@ -115,6 +115,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     });
     const preview = createPreview({
         element: $("preview"), words: $("words"), readText: editor.readText,
+        loadImage: (path, source) => api("image", { path, source }), onError: report,
         onRender: () => scrollSync?.refresh(),
     });
     review = createReview({

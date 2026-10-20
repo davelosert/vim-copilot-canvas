@@ -6,6 +6,7 @@ A Canvas for the GitHub Copilot App that brings Vim-style navigation and editing
 
 - Inline prompts to the Copilot App, with the option to group feedback or change requests before sending them.
 - First-class GitHub-flavored Markdown support with live previews, built on [CodeMirror](https://codemirror.net/).
+- Local image previews (including SVG), resolved relative to the Markdown file within the workspace, up to 5 MiB per image. External images are not fetched.
 - Bidirectional scroll sync between the Markdown editor and preview, matching relative document progress.
 - A Vim-tree-style file explorer for quickly navigating project files.
 - Settings and theming, including relative line numbers.

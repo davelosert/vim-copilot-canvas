@@ -277,7 +277,7 @@ test("sanitized preview, responsive layouts, theme and shortcuts", async () => {
     const snapshot = await state();
     await store.update(document, '# Safe\n\n<script>window.pwned = true</script>\n\n<img src="https://example.com/tracker.png" onerror="window.pwned=true">\n\n<svg onload="window.pwned=true"><script>window.pwned=true</script></svg>\n\n[unsafe](javascript:alert(1))\n\n[external](https://example.com)\n', snapshot.revision);
     await until(async () => assert.equal(await page.locator("#preview h1").innerText(), "Safe"));
-    assert.equal(await page.locator("#preview script, #preview img").count(), 0);
+    await until(async () => assert.equal(await page.locator("#preview script, #preview img").count(), 0));
     assert.equal(await page.locator("#preview svg, #preview [onload], #preview [onerror]").count(), 0);
     assert.equal(await page.locator("#preview a[href^='javascript:']").count(), 0);
     assert.equal(await page.locator("#preview a").filter({ hasText: "unsafe" }).getAttribute("href"), null);
