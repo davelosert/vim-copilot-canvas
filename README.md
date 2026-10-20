@@ -44,6 +44,18 @@ production-page tests; there is no separate Playwright test runner.
 | `npm run test:e2e` | Fresh production build and real HTTP-page tests |
 | `npm run test:watch` | Interactive Vitest development mode |
 
+### Opening the current checkout's canvas
+
+Repository sessions discover `.github/extensions/vim-canvas-dev/extension.mjs`, which registers **Vim Copilot Canvas (Dev)** (`vim-markdown-dev`) alongside the installed canvas.
+Ask Copilot to open that dev canvas to run the backend and serve the assets from the current worktree, rather than the installed version.
+
+Run `npm run build` after frontend changes and ask Copilot to reload extensions (`extensions_reload`) after backend or provider changes, or when first adding the dev registration to an existing session.
+Then open **Vim Copilot Canvas (Dev)**; without explicit file or root input it uses the session's working directory.
+
+Dev drafts, pending reviews, and the fallback welcome document live in a `vim-canvas-dev/` directory under session storage, outside the checkout.
+They survive extension reloads within that session but are isolated from other sessions and the installed canvas.
+Explicit file saves still update the files you are editing; global editor settings remain shared.
+
 ### Releases
 
 Releases use [Changesets](https://changesets.dev/). This is a GitHub-distributed
@@ -129,6 +141,7 @@ dispatching to application routes. Persistent stores retain their individual
 locking and write semantics. Shared modules must not import browser or Node-only
 APIs. Keep the required `extension.mjs` at the installation root: source
 relocation does not change draft/review artifact locations or global settings.
+The project dev entry overrides draft/review storage with its session directory while reusing the same provider.
 
 Use unit tests for deterministic save/conflict races, integration tests for
 filesystem and HTTP behavior, and Browser Mode for real keyboard, focus, DOM,
