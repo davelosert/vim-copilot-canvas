@@ -4,9 +4,9 @@ export function createSettings({ elements: e, api, onSettings }) {
     const handlers = new AbortController();
     let disposed = false, saving = false, generation = 0;
     let settings, persisted;
-    const keys = ["relativeLineNumbers", "showKeyboardShortcutIndicators", "theme"];
+    const keys = ["relativeLineNumbers", "showKeyboardShortcutIndicators", "agentVimMode", "theme"];
     const listen = (element, type, fn) => element.addEventListener(type, fn, { signal: handlers.signal });
-    const controls = [e.relative, e.shortcuts, e.theme];
+    const controls = [e.relative, e.shortcuts, e.agentVim, e.theme];
     for (const control of controls) control.disabled = true;
     const difference = (base, value) => Object.fromEntries(keys.filter((key) => base[key] !== value[key]).map((key) => [key, value[key]]));
     function updateActions() {
@@ -26,10 +26,11 @@ export function createSettings({ elements: e, api, onSettings }) {
         settings = { ...value };
         e.relative.checked = value.relativeLineNumbers;
         e.shortcuts.checked = value.showKeyboardShortcutIndicators ?? true;
+        e.agentVim.checked = value.agentVimMode ?? true;
         e.theme.value = value.theme;
         for (const control of controls) control.disabled = false;
         updateActions();
-        if (!previous || Object.keys(value).some((key) => value[key] !== previous[key])) onSettings(settings, previous);
+        if (!previous || keys.some((key) => value[key] !== previous[key])) onSettings(settings, previous);
     }
     function apply(value) {
         if (disposed) return;
@@ -91,6 +92,7 @@ export function createSettings({ elements: e, api, onSettings }) {
     });
     listen(e.relative, "change", () => preview({ relativeLineNumbers: e.relative.checked }));
     listen(e.shortcuts, "change", () => preview({ showKeyboardShortcutIndicators: e.shortcuts.checked }));
+    listen(e.agentVim, "change", () => preview({ agentVimMode: e.agentVim.checked }));
     listen(e.theme, "change", () => preview({ theme: e.theme.value }));
     listen(e.save, "click", save);
     listen(e.discard, "click", discard);

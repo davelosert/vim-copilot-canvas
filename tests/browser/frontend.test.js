@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { mountApp } from "../../src/frontend/app.js";
 import { createExplorer } from "../../src/frontend/explorer.js";
+import "../../src/frontend/primer.css";
 
 const [markup, stylesheet] = await Promise.all(["/index.html", "/editor.css"].map(async (url) => (await fetch(url)).text()));
 const deferred = () => {
@@ -61,6 +62,10 @@ function fakeApi() {
             items.push({ ...input, id: `item-${items.length}`, label: `${input.path.split("/").pop()}:1`, lines: input.lines ?? [{ start: 1, end: 1 }] });
             return { items: [...items] };
         }
+        if (path === "review/edit") {
+            items = items.map((item) => item.id === input.id ? { ...item, prompt: input.prompt } : item);
+            return { items: [...items] };
+        }
         if (path === "review/remove") items = items.filter((item) => !input.ids.includes(item.id));
         else if (path === "review/send" || path === "review/clear") items = [];
         else if (path === "reload") {
@@ -97,6 +102,80 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    const longMarkdown = Array.from({ length: 100 }, (_, index) =>
+        `## Section ${index + 1}\n\nParagraph with **formatted text**, a [link](https://example.com), and enough words to wrap across several lines in the editor.\n\n- First item\n- Second item\n`).join("\n");
+    const scrollProgress = (pane) => pane.scrollTop / (pane.scrollHeight - pane.clientHeight);
+    const scrollToProgress = (pane, progress) => { pane.scrollTop = progress * (pane.scrollHeight - pane.clientHeight); };
+    const nextFrames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    it("syncs scrolling in either direction across different content heights without feedback", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", longMarkdown);
+        await app.controller.reload();
+        const source = app.editor.view.scrollDOM, preview = $("preview");
+        await expect.poll(() => source.scrollHeight).toBeGreaterThan(source.clientHeight);
+        expect(preview.scrollHeight).toBeGreaterThan(preview.clientHeight);
+        expect(source.scrollHeight).not.toBe(preview.scrollHeight);
+        await nextFrames();
+
+        for (const pane of [source, preview]) {
+            const other = pane === source ? preview : source;
+            for (const progress of [0.35, 0.7, 1, 0]) {
+                scrollToProgress(pane, progress);
+                await expect.poll(() => Math.abs(scrollProgress(other) - scrollProgress(pane))).toBeLessThan(0.005);
+                await nextFrames();
+                expect(Math.abs(scrollProgress(pane) - progress)).toBeLessThan(0.03);
+                expect(scrollProgress(other)).toBeCloseTo(scrollProgress(pane), 2);
+            }
+        }
+    });
+
+    it("retains scroll progress through layout changes and live preview updates", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", longMarkdown);
+        await app.controller.reload();
+        const source = app.editor.view.scrollDOM, preview = $("preview");
+        await nextFrames();
+        scrollToProgress(preview, 0.6);
+        await expect.poll(() => Math.abs(scrollProgress(source) - scrollProgress(preview))).toBeLessThan(0.005);
+        expect(Math.abs(scrollProgress(preview) - 0.6)).toBeLessThan(0.03);
+        await userEvent.click(document.querySelector('[data-layout="preview"]'));
+        await nextFrames();
+        scrollToProgress(preview, 0.3);
+        await nextFrames();
+        await userEvent.click(document.querySelector('[data-layout="split"]'));
+        await expect.poll(() => Math.abs(scrollProgress(source) - scrollProgress(preview))).toBeLessThan(0.005);
+        expect(Math.abs(scrollProgress(preview) - 0.3)).toBeLessThan(0.03);
+
+        app.editor.view.dispatch({ changes: { from: app.editor.view.state.doc.length, insert: `\n${longMarkdown}` } });
+        await expect.poll(() => preview.querySelectorAll("h2").length).toBe(200);
+        await expect.poll(() => Math.abs(scrollProgress(preview) - scrollProgress(source))).toBeLessThan(0.01);
+    });
+
+    it("resets scrolling on file switches and handles documents without overflow", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", longMarkdown);
+        await app.controller.reload();
+        const source = app.editor.view.scrollDOM, preview = $("preview");
+        await nextFrames();
+        scrollToProgress(source, 0.8);
+        await expect.poll(() => Math.abs(scrollProgress(preview) - scrollProgress(source))).toBeLessThan(0.005);
+        expect(scrollProgress(preview)).toBeGreaterThan(0.7);
+        await app.controller.open("/work/b.js");
+        await nextFrames();
+        expect(source.scrollTop).toBe(0);
+        await app.controller.open("/work/a.md");
+        await expect.poll(() => preview.scrollTop).toBe(0);
+        expect(source.scrollTop).toBe(0);
+
+        files.set("/work/a.md", "# Short");
+        await app.controller.reload();
+        await nextFrames();
+        expect(preview.scrollTop).toBe(0);
+        expect(source.scrollTop).toBe(0);
+        expect(preview.scrollHeight).toBe(preview.clientHeight);
+    });
+
     it("applies the selected editor theme to the full canvas and follows system mode", async () => {
         document.documentElement.dataset.colorMode = "dark";
         await fixture();
@@ -162,6 +241,7 @@ describe("mounted frontend with real CodeMirror", () => {
         expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("false");
         expect(getComputedStyle(document.querySelector(".explorer-hint")).display).toBe("none");
         expect(getComputedStyle(document.querySelector(".agent-actions kbd")).display).toBe("none");
+        expect(getComputedStyle($("review-send").querySelector("kbd")).display).toBe("none");
         expect(getComputedStyle(document.querySelector(".agent-hint")).display).toBe("none");
         expect(getComputedStyle($("help").querySelector(".shortcut-section")).display).toBe("none");
 
@@ -169,6 +249,7 @@ describe("mounted frontend with real CodeMirror", () => {
         expect($("settings-status").textContent).toBe("");
         expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("true");
         expect(getComputedStyle(document.querySelector(".agent-actions kbd")).display).not.toBe("none");
+        expect(getComputedStyle($("review-send").querySelector("kbd")).display).not.toBe("none");
         await userEvent.click($("close-settings"));
         const promptInput = document.querySelector('.agent-prompt [aria-label="Agent prompt"]');
         await userEvent.click(promptInput);
@@ -425,11 +506,59 @@ describe("mounted frontend with real CodeMirror", () => {
         expect(content.getBoundingClientRect().height).toBeGreaterThanOrEqual(lineHeight * 3);
 
         const send = [...prompt.querySelectorAll(".agent-actions button")].find((el) => el.textContent.startsWith("Send to Agent"));
-        expect(send.classList.contains("primary")).toBe(true);
+        expect(send.classList.contains("btn-primary")).toBe(true);
         expect(send.querySelector("kbd").textContent).toMatch(/⏎|Enter/);
         expect(getComputedStyle(send.querySelector("kbd")).display).not.toBe("none");
         expect(send.getAttribute("aria-keyshortcuts")).toBe("Enter");
         expect(prompt.querySelector(".agent-hint kbd").textContent).toMatch(/⇧⏎|Shift\+Enter/);
+    });
+
+    it("switches Agent Vim mode live without losing text and closes standard prompts with one Escape", async () => {
+        const { app, api } = await fixture();
+        app.editor.focus();
+        await key("{Control>}i{/Control}Keep this");
+        await userEvent.click($("settings-button"));
+        await expect.poll(() => $("settings-status").textContent).toBe("");
+        expect($("agent-vim-mode").checked).toBe(true);
+        await userEvent.click($("agent-vim-mode"));
+        expect(document.querySelector(".agent-header .mode").hidden).toBe(true);
+        expect(api.mock.calls.filter(([path, input]) => path === "settings" && input)).toHaveLength(0);
+        await userEvent.click($("discard-settings"));
+        expect($("agent-vim-mode").checked).toBe(true);
+        expect(document.querySelector(".agent-header .mode").hidden).toBe(false);
+        expect(document.querySelector(".agent-input .cm-content").textContent).toBe("Keep this");
+        expect(api.mock.calls.filter(([path, input]) => path === "settings" && input)).toHaveLength(0);
+        await userEvent.click($("agent-vim-mode"));
+        await userEvent.click($("save-settings"));
+        await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        await userEvent.click($("close-settings"));
+        expect(document.querySelector(".agent-header .mode").hidden).toBe(true);
+        expect(document.querySelector(".agent-input .cm-content").textContent).toBe("Keep this");
+        expect(document.querySelector(".agent-cancel kbd").textContent).toBe("Esc");
+        await userEvent.click(document.querySelector(".agent-input .cm-content"));
+        await key("{Escape}");
+        expect(document.querySelectorAll(".agent-prompt")).toHaveLength(0);
+        expect(app.editor.view.scrollDOM.classList.contains("cm-vimMode")).toBe(true);
+        await key("{Control>}i{/Control}Standard text{Shift>}{Enter}{/Shift}Second line");
+        expect(document.querySelector(".agent-input .cm-content").textContent).toContain("Standard text");
+        await key("{Meta>}{Enter}{/Meta}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
+        expect((await api("review")).items[0].prompt).toBe("Standard text\nSecond line");
+        await userEvent.click(document.querySelector(".review-marker"));
+        expect(document.querySelector(".agent-input .cm-content").textContent).toContain("Standard text");
+        await userEvent.click($("settings-button"));
+        await expect.poll(() => $("settings-status").textContent).toBe("");
+        await userEvent.click($("agent-vim-mode"));
+        await userEvent.click($("save-settings"));
+        await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        await userEvent.click($("close-settings"));
+        expect(document.querySelector(".agent-header .mode").hidden).toBe(false);
+        expect(document.querySelector(".agent-input .cm-content").textContent).toContain("Standard text");
+        await userEvent.click(document.querySelector(".agent-input .cm-content"));
+        await key("{Escape}");
+        expect(document.querySelectorAll(".agent-prompt")).toHaveLength(1);
+        await key("{Escape}");
+        expect(document.querySelectorAll(".agent-prompt")).toHaveLength(0);
     });
 
     it("uses frozen selection context and prompt-local keyboard priority, with failed-send retry", async () => {
@@ -473,6 +602,130 @@ describe("mounted frontend with real CodeMirror", () => {
         expect(api.mock.calls.filter(([path]) => path === "review/send")).toHaveLength(1);
     });
 
+    it("opens separate left-hand icons on the same line, toggles, edits, maps and deletes comments", async () => {
+        const { app, api } = await fixture();
+        for (const prompt of ["First comment", "Second comment"]) {
+            await api("review/add", { path: "/work/a.md", prompt, selections: [], lines: [{ start: 3, end: 4 }] });
+        }
+        await app.controller.poll();
+        const icons = () => [...document.querySelectorAll(".review-marker")];
+        expect(icons()).toHaveLength(2);
+        const contentBounds = app.editor.view.contentDOM.getBoundingClientRect();
+        expect(icons()[0].getBoundingClientRect().right).toBeLessThanOrEqual(contentBounds.left);
+        expect(icons()[0].getBoundingClientRect().left).toBeGreaterThanOrEqual(app.editor.view.scrollDOM.getBoundingClientRect().left);
+        const lastLine = [...app.editor.view.contentDOM.querySelectorAll(":scope > .cm-line")].at(-1);
+        await expect.poll(() => Math.abs(icons()[0].getBoundingClientRect().top - lastLine.getBoundingClientRect().top)).toBeLessThan(4);
+        await userEvent.click(icons()[0]);
+        expect(document.querySelector(".agent-input .cm-content").textContent).toBe("First comment");
+        await key("{Escape}ccCancelled");
+        await userEvent.click(icons()[0]);
+        expect(document.querySelectorAll(".agent-prompt")).toHaveLength(0);
+        expect((await api("review")).items[0].prompt).toBe("First comment");
+        await userEvent.click(icons()[0]);
+        expect(document.querySelector(".agent-input .cm-content").textContent).toBe("First comment");
+        await userEvent.click(icons()[0]);
+        expect(document.querySelectorAll(".agent-prompt")).toHaveLength(0);
+
+        app.editor.view.dispatch({ changes: { from: 0, insert: "new line\n" } });
+        await app.controller.save();
+        await app.controller.poll();
+        const mappedLast = [...app.editor.view.contentDOM.querySelectorAll(":scope > .cm-line")].at(-1);
+        await expect.poll(() => Math.abs(icons()[1].getBoundingClientRect().top - mappedLast.getBoundingClientRect().top)).toBeLessThan(4);
+        await userEvent.click(icons()[1]);
+        expect(document.querySelector(".agent-input .cm-content").textContent).toBe("Second comment");
+        await key("{Escape}ccUpdated comment{Enter}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
+        expect((await api("review")).items).toHaveLength(2);
+        expect((await api("review")).items[1].prompt).toBe("Updated comment");
+        expect(icons()[1].title).toContain("Updated comment");
+        expect($("review-list").textContent).toContain("Updated comment");
+        expect(api.mock.calls.filter(([path]) => path === "review/edit")).toHaveLength(1);
+        expect(app.editor.readText()).toBe("new line\n# Title\n\nfirst line\nsecond line");
+        await userEvent.click(icons()[1]);
+        await userEvent.click([...document.querySelectorAll(".agent-actions button")].find((button) => button.textContent === "Delete comment"));
+        await expect.poll(() => icons().length).toBe(1);
+        expect((await api("review")).items[0].prompt).toBe("First comment");
+        await app.controller.open("/work/b.js");
+        expect(icons()).toHaveLength(0);
+        await userEvent.click($("review-toggle"));
+        await userEvent.click(document.querySelector(".review-edit"));
+        await expect.poll(() => document.querySelector(".agent-input .cm-content")?.textContent).toBe("First comment");
+        expect(app.controller.getState().current.path).toBe("/work/a.md");
+    });
+
+    it("keeps Enter and modifier Enter consistent during a review and offers send-all as a third action", async () => {
+        const { app, api } = await fixture();
+        await api("review/add", { path: "/work/a.md", prompt: "Pending", selections: [] });
+        await app.controller.poll();
+        const open = async () => {
+            app.editor.focus();
+            await key("{Control>}i{/Control}");
+        };
+        await open();
+        const actions = [...document.querySelectorAll(".agent-actions button")];
+        expect(actions.map((button) => button.querySelector("span")?.textContent)).toEqual(["Send to Agent", "Add to batch", "Send batch (1)", "Cancel"]);
+        expect($("review").getAttribute("aria-label")).toBe("Request batch");
+        expect($("review-count").textContent).toBe("1 pending request");
+        expect($("review-discard").textContent).toBe("Discard batch");
+        expect(getComputedStyle($("review-send").querySelector("kbd")).display).not.toBe("none");
+        for (const button of actions.slice(0, 3)) {
+            expect(getComputedStyle(button.querySelector("kbd")).display).not.toBe("none");
+        }
+        expect(actions[0].getAttribute("aria-keyshortcuts")).toBe("Enter");
+        expect(actions[1].getAttribute("aria-keyshortcuts")).toBe("Control+Enter Meta+Enter");
+        await key("Immediate{Enter}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
+        expect(api.mock.calls.filter(([path]) => path === "agent")).toMatchObject([["agent", { prompt: "Immediate" }]]);
+        expect((await api("review")).items).toHaveLength(1);
+        await open();
+        await key("Grouped{Meta>}{Enter}{/Meta}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
+        expect((await api("review")).items).toHaveLength(2);
+        expect($("review-count").textContent).toBe("2 pending requests");
+        await open();
+        await key("Final{Meta>}{Shift>}{Enter}{/Shift}{/Meta}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
+        expect(api.mock.calls.filter(([path]) => path === "review/send")).toHaveLength(1);
+        expect(api.mock.calls.filter(([path]) => path === "review/add").at(-1)[1].prompt).toBe("Final");
+        expect((await api("review")).items).toHaveLength(0);
+    });
+
+    it("expands list comments across files and switches between comments in the same file", async () => {
+        const { app, api } = await fixture();
+        await api("review/add", { path: "/work/a.md", prompt: "First", selections: [], lines: [{ start: 1, end: 1 }] });
+        await api("review/add", { path: "/work/a.md", prompt: "Multiline", selections: [], lines: [{ start: 3, end: 4 }] });
+        await app.controller.poll();
+        await app.controller.open("/work/b.js");
+        await userEvent.click($("review-toggle"));
+        const rows = () => [...document.querySelectorAll(".review-item")];
+        await userEvent.click(rows()[1]);
+        await expect.poll(() => document.querySelector(".agent-input .cm-content")?.textContent).toBe("Multiline");
+        expect(app.controller.getState().current.path).toBe("/work/a.md");
+        expect(app.editor.view.state.doc.lineAt(app.editor.view.state.selection.main.head).number).toBe(4);
+        await userEvent.click(rows()[0]);
+        await expect.poll(() => document.querySelector(".agent-input .cm-content")?.textContent).toBe("First");
+        expect(app.editor.view.state.doc.lineAt(app.editor.view.state.selection.main.head).number).toBe(1);
+        await userEvent.click(rows()[0]);
+        expect(document.querySelectorAll(".agent-prompt")).toHaveLength(1);
+    });
+
+    it("keeps failed comment edits open for retry without adding or sending comments", async () => {
+        const { app, api } = await fixture();
+        await api("review/add", { path: "/work/a.md", prompt: "Original", selections: [] });
+        await app.controller.poll();
+        const original = api.getMockImplementation();
+        api.mockImplementation((path, input) => path === "review/edit" ? Promise.reject(new Error("Save unavailable")) : original(path, input));
+        await userEvent.click(document.querySelector(".review-marker"));
+        await key("{Escape}ccRetry edit{Enter}");
+        await expect.poll(() => document.querySelector(".agent-status")?.textContent).toContain("Save unavailable");
+        expect(document.querySelector(".agent-input .cm-content").textContent).toBe("Retry edit");
+        expect(api.mock.calls.filter(([path]) => path === "review/send" || path === "agent")).toHaveLength(0);
+        api.mockImplementation(original);
+        await key("{Enter}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
+        expect((await api("review")).items[0].prompt).toBe("Retry edit");
+    });
+
     it("does not let feature errors change document conflict ownership", async () => {
         const { app, api } = await fixture();
         const original = api.getMockImplementation();
@@ -487,7 +740,7 @@ describe("mounted frontend with real CodeMirror", () => {
         expect($("save-status").textContent).toBe("Saved to disk");
     });
 
-    it("does not count server replacements as local edits and gates typing throughout reload", async () => {
+    it("automatically reloads disk conflicts without marking the replacement as a local edit", async () => {
         const { app, api } = await fixture();
         const original = api.getMockImplementation();
         const server = { ...app.controller.getState().current, content: "# External\n\nDisk version", revision: "external", conflict: true };
@@ -497,26 +750,18 @@ describe("mounted frontend with real CodeMirror", () => {
             if (path === "reload") { entered.resolve(input); return response.promise; }
             return original(path, input);
         });
-        await app.controller.poll();
-        expect(app.editor.readText()).toBe(server.content);
-        expect(app.controller.getState()).toMatchObject({ localVersion: 0, persistedVersion: 0, localPending: false });
-        expect(api.mock.calls.filter(([path]) => path === "draft")).toHaveLength(0);
-        await userEvent.click($("reload-button"));
+        const polling = app.controller.poll();
         await entered.promise;
-        expect(app.editor.view.state.readOnly).toBe(true);
-        expect(app.editor.view.contentDOM.contentEditable).toBe("false");
-        const before = app.editor.readText();
-        app.editor.focus();
-        await key("i");
-        await key("must not insert");
-        await key("{Escape}");
-        expect(app.editor.readText()).toBe(before);
         response.resolve({ ...server, content: "# Reloaded", conflict: false, revision: "reloaded" });
-        await expect.poll(() => app.editor.readText()).toBe("# Reloaded");
-        await expect.poll(() => app.editor.view.state.readOnly).toBe(false);
-        expect(app.controller.getState()).toMatchObject({ localVersion: 0, persistedVersion: 0, blocked: false });
-        await insert(app, "allowed ");
-        expect(app.editor.readText()).toContain("allowed ");
+        await polling;
+        expect(app.editor.readText()).toBe("# Reloaded");
+        expect(app.controller.getState()).toMatchObject({
+            localVersion: 0, persistedVersion: 0, localPending: false, blocked: false,
+            current: { conflict: false, dirty: false },
+        });
+        expect(api.mock.calls.filter(([path]) => path === "draft")).toHaveLength(0);
+        expect($("conflict").hidden).toBe(true);
+        expect($("notice").hidden).toBe(true);
     });
 
     it("disposes listeners, timers, editors and prompts and can remount without duplicate actions", async () => {

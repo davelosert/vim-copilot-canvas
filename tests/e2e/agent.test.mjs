@@ -81,6 +81,60 @@ test("agent prompt: cursor line, inline placement, newline, no duplicates and fo
     await finish();
 });
 
+test("Primer prompt and review controls follow live themes without changing the host colour mode", async () => {
+    const { page, open, prompt, keys, finish } = await agentPage();
+    await page.evaluate(() => { document.documentElement.dataset.colorMode = "light"; });
+    await open();
+    await page.keyboard.type("Review with Primer");
+    const scope = page.locator(".agent-prompt");
+    const primary = scope.locator(".btn-primary");
+    for (const mode of ["light", "dark"]) {
+        await page.evaluate((value) => { document.documentElement.dataset.colorMode = value; }, mode);
+        await until(async () => assert.equal(await scope.getAttribute("data-color-mode"), mode));
+        assert.equal(await page.locator("#review").getAttribute("data-color-mode"), mode);
+        const contrast = await primary.evaluate((node) => {
+            const luminance = (color) => {
+                const channels = color.match(/[\d.]+/g).slice(0, 3).map((value) => {
+                    const channel = Number(value) / 255;
+                    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+                });
+                return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+            };
+            const style = getComputedStyle(node);
+            const values = [luminance(style.color), luminance(style.backgroundColor)].sort((a, b) => b - a);
+            return (values[0] + 0.05) / (values[1] + 0.05);
+        });
+        assert.ok(contrast >= 4.5, `${mode} primary contrast: ${contrast}`);
+        assert.equal(await scope.locator(".agent-input .cm-editor").evaluate((node) =>
+            getComputedStyle(node).backgroundColor === getComputedStyle(document.querySelector("#editor > .cm-editor")).backgroundColor), true);
+    }
+    await page.evaluate(() => { document.documentElement.dataset.colorMode = "light"; });
+    await page.locator("#settings-button").click();
+    await page.locator("#editor-theme").selectOption("dracula");
+    await page.locator("#save-settings").click();
+    await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
+    await page.locator("#close-settings").click();
+    await until(async () => assert.equal(await scope.getAttribute("data-color-mode"), "dark"));
+    assert.equal(await page.locator("html").getAttribute("data-color-mode"), "light");
+    await until(async () => assert.equal(await scope.getByRole("button", { name: "Add to batch", exact: true }).evaluate((node) =>
+        getComputedStyle(node).backgroundColor === getComputedStyle(document.querySelector(".toolbar")).backgroundColor), true));
+    assert.equal(await scope.locator(".agent-input .cm-editor").evaluate((node) =>
+        getComputedStyle(node).backgroundColor === getComputedStyle(document.querySelector("#editor > .cm-editor")).backgroundColor), true);
+    assert.equal(await prompt.innerText(), "Review with Primer");
+    assert.equal(await scope.locator(".mode").innerText(), "INSERT");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator("#toggle-explorer").click();
+    await prompt.click();
+    assert.equal(await scope.evaluate((node) => {
+        const bounds = node.getBoundingClientRect();
+        return bounds.left >= 0 && bounds.right <= innerWidth && node.scrollWidth <= node.clientWidth;
+    }), true);
+    await keys("Control+Enter");
+    await until(async () => assert.equal(await prompt.count(), 0));
+    assert.equal(await page.locator("#review-send.btn-primary").isVisible(), true);
+    await finish();
+});
+
 test("agent prompt: forward and backward Visual line selections preserve CodeMirror's range", async () => {
     const { messages, keys, open, send, finish } = await agentPage();
     for (const sequence of [["g", "g", "V", "j"], ["Escape", "g", "g", "j", "V", "k"]]) {
@@ -176,7 +230,7 @@ test("agent prompt: pending sends are locked and file switches cannot reuse old 
 
 test("reviews group comments across files, persist across reload, and send as one message", async () => {
     // Starts on second.md, as the original sequence did after switching files.
-    const { path, second, messages, page, prompt, keys, open, finish } = await agentPage({ initial: "second.md" });
+    const { path, second, messages, page, prompt, keys, open, promptText, finish } = await agentPage({ initial: "second.md" });
     const count = messages.length;
     const bar = page.locator("#review");
     const reviewCount = () => page.locator("#review-count").innerText();
@@ -191,42 +245,91 @@ test("reviews group comments across files, persist across reload, and send as on
     await page.keyboard.type("Rename heading");
     await keys("Control+Enter");
     await until(async () => assert.equal(await prompt.count(), 0));
-    await until(async () => assert.match(await reviewCount(), /1 comment$/));
+    await until(async () => assert.match(await reviewCount(), /1 pending request$/));
     assert.equal(await markers(), 1);
     await ex("e example.md");
     await until(async () => assert.equal(await page.locator("#filepath").innerText(), path));
     assert.equal(await markers(), 0);
     await keys("g", "g", "V", "j");
     await open();
-    assert.match(await page.locator(".agent-actions").innerText(), /Send review \(1\)/);
+    assert.match(await page.locator(".agent-actions").innerText(), /Send batch \(1\)/);
     await page.keyboard.type("Tighten");
-    await keys("Enter");
-    await until(async () => assert.match(await reviewCount(), /2 comments/));
+    await keys("Control+Enter");
+    await until(async () => assert.match(await reviewCount(), /2 pending requests/));
     await keys("Escape");
     assert.equal(await markers(), 2);
     assert.equal(messages.length, count);
 
     await page.reload();
     await page.locator(".cm-editor").waitFor();
-    await until(async () => assert.match(await reviewCount(), /2 comments/));
+    await until(async () => assert.match(await reviewCount(), /2 pending requests/));
     await until(async () => assert.equal(await markers(), 2));
     await page.locator("#review-toggle").click();
     await page.getByRole("button", { name: "Remove comment on example.md:1-2" }).click();
-    await until(async () => assert.match(await reviewCount(), /1 comment$/));
+    await until(async () => assert.match(await reviewCount(), /1 pending request$/));
     assert.equal(await markers(), 0);
     await page.locator(".review-item").first().click();
     await until(async () => assert.equal(await page.locator("#filepath").innerText(), second));
+    await until(async () => assert.equal(await promptText(), "Rename heading"));
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await open();
     await page.keyboard.type("Add intro");
-    await page.getByRole("button", { name: "Add to review" }).click();
-    await until(async () => assert.match(await reviewCount(), /2 comments/));
+    await page.getByRole("button", { name: "Add to batch" }).click();
+    await until(async () => assert.match(await reviewCount(), /2 pending requests/));
     await keys("Control+Shift+Enter");
     await until(async () => assert.equal(messages.length, count + 1));
-    assert.match(messages.at(-1).prompt, /2 review comments/);
+    assert.match(messages.at(-1).prompt, /2 batched requests/);
     assert.match(messages.at(-1).prompt, /Rename heading[\s\S]*Add intro/);
     assert.deepEqual(messages.at(-1).attachments.map((item) => item.displayName), ["second.md:1", "second.md:1"]);
     await until(async () => assert.equal(await bar.isVisible(), false));
     assert.equal(await markers(), 0);
+    await finish();
+});
+
+test("review icons reopen comments for persistent edits and deletion without changing attachments", async () => {
+    const { path, messages, page, prompt, keys, open, promptText, finish } = await agentPage();
+    await keys("j");
+    await open();
+    await page.keyboard.type("Original comment");
+    await keys("Control+Enter");
+    await until(async () => assert.equal(await page.locator(".review-marker").count(), 1));
+    const icon = page.locator(".review-marker");
+    assert.equal(await icon.getAttribute("aria-label"), "Edit comment on example.md:2: Original comment");
+    await icon.waitFor();
+    await icon.click();
+    assert.equal(await promptText(), "Original comment");
+    await icon.click();
+    assert.equal(await prompt.count(), 0);
+    await icon.click();
+    assert.equal(await promptText(), "Original comment");
+    await keys("Escape", "c", "c");
+    await page.keyboard.type("Changed comment");
+    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await until(async () => assert.equal(await prompt.count(), 0));
+    await page.reload();
+    const updated = page.locator(".review-marker");
+    await updated.waitFor();
+    assert.equal(await updated.getAttribute("aria-label"), "Edit comment on example.md:2: Changed comment");
+    await updated.click();
+    assert.equal(await promptText(), "Changed comment");
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.locator("#review-send").click();
+    await until(async () => assert.equal(messages.length, 1));
+    assert.match(messages[0].prompt, /Changed comment/);
+    assert.deepEqual(messages[0].attachments, [{
+        type: "selection", filePath: path, displayName: "example.md:2",
+        selection: { start: { line: 1, character: 0 }, end: { line: 1, character: 11 } },
+        text: "Second line",
+    }]);
+    await until(async () => assert.equal(await page.locator(".review-marker").count(), 0));
+    await page.locator("#editor > .cm-editor > .cm-scroller > .cm-content").focus();
+    await open();
+    await page.keyboard.type("Delete me");
+    await keys("Control+Enter");
+    await page.locator(".review-marker").click();
+    await page.getByRole("button", { name: "Delete comment", exact: true }).click();
+    await until(async () => assert.equal(await page.locator(".review-marker").count(), 0));
+    assert.equal(await prompt.count(), 0);
     await finish();
 });
 
@@ -252,12 +355,12 @@ test("reviews can be discarded or sent with :AgentDiscard, :AgentSend and the re
     await until(async () => assert.equal(await bar.isVisible(), true));
     await ex("AgentSend");
     await until(async () => assert.equal(messages.length, count + 1));
-    assert.match(messages.at(-1).prompt, /1 review comment\. [\s\S]*Via ex/);
+    assert.match(messages.at(-1).prompt, /1 batched request\. [\s\S]*Via ex/);
     await open();
     await page.keyboard.type("Send review");
     await keys("Control+Enter");
     await until(async () => assert.equal(await bar.isVisible(), true));
-    await page.getByRole("button", { name: "Send review", exact: true }).click();
+    await page.getByRole("button", { name: "Send batch", exact: true }).click();
     await until(async () => assert.equal(messages.length, count + 2));
     await until(async () => assert.equal(await bar.isVisible(), false));
     await finish();

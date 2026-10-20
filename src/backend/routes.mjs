@@ -1,6 +1,7 @@
 import { EditorError } from "./errors.mjs";
 import { composeReview, summarize } from "./review-store.mjs";
 import { buildAttachments, createDelivery, validPrompt } from "./agent-delivery.mjs";
+import { readImage } from "./images.mjs";
 
 /**
  * Application routes for one editor panel. Owns the panel's active document
@@ -50,6 +51,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
     ]);
 
     const post = new Map([
+        ["/api/image", documentInput((target, input) => readImage(workspace, target.path, input.source))],
         ["/api/draft", revisionInput((target, input) => store.update(target, input.content, input.revision))],
         ["/api/save", revisionInput((target, input) => store.save(target, input.revision))],
         ["/api/reload", revisionInput((target, input) => store.reload(target, input.revision, input.diskHash))],
@@ -68,16 +70,23 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
             });
             return review();
         })],
+        ["/api/review/edit", objectInput(async (input) => {
+            if (typeof input.id !== "string" || !input.id) {
+                throw new EditorError("invalid_input", "A batch comment id is required.", 400);
+            }
+            await reviews.edit(workspace.root, input.id, validPrompt(input.prompt));
+            return review();
+        })],
         ["/api/review/remove", objectInput(async (input) => {
             if (!Array.isArray(input.ids) || !input.ids.every((id) => typeof id === "string")) {
-                throw new EditorError("invalid_input", "Review comment ids are required.", 400);
+                throw new EditorError("invalid_input", "Batch comment ids are required.", 400);
             }
             await reviews.remove(workspace.root, input.ids);
             return review();
         })],
         ["/api/review/send", objectInput(async () => {
             const items = await reviews.list(workspace.root);
-            if (!items.length) throw new EditorError("review_empty", "The review has no comments.", 400);
+            if (!items.length) throw new EditorError("review_empty", "The batch has no requests.", 400);
             const messageId = await deliver({
                 prompt: composeReview(items),
                 attachments: items.flatMap((item) => item.attachments),

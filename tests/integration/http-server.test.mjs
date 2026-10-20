@@ -21,7 +21,11 @@ test("HTTP endpoints require token and same origin; assets are local", async () 
     assert.equal((await response.json()).content, "# Original\n");
     const asset = await fetch(new URL("/editor.js", url));
     assert.equal(asset.status, 200);
-    assert.match(asset.headers.get("content-security-policy"), /img-src 'none'/);
+    assert.match(asset.headers.get("content-security-policy"), /img-src data:;/);
+    const primer = await fetch(new URL("/primer.css", url));
+    assert.equal(primer.status, 200);
+    assert.match(primer.headers.get("content-type"), /^text\/css/);
+    assert.match(await primer.text(), /\.btn-primary/);
     const invalid = await fetch(new URL("/api/draft", url), {
         method: "POST",
         headers: { "X-Editor-Token": token, "Content-Type": "application/json" },
@@ -181,7 +185,7 @@ test("failed review sends retain comments; successful sends compose one message 
     const { messages } = session;
     assert.equal(messages.length, 1);
     assert.equal(messages[0].mode, "immediate");
-    assert.match(messages[0].prompt, /2 review comments/);
+    assert.match(messages[0].prompt, /2 batched requests/);
     assert.match(messages[0].prompt, /1\. note\.md:2-3 \(.*note\.md\)\n   Fix wording/);
     assert.match(messages[0].prompt, /2\. other\.md:1 \(.*other\.md\)\n   Shorten/);
     assert.deepEqual(messages[0].attachments.map(({ displayName, text }) => ({ displayName, text })), [

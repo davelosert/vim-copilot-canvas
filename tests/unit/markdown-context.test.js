@@ -10,7 +10,15 @@ describe("pure Markdown rendering", () => {
         expect(html).toContain("data-footnotes");
         expect(html).toContain("markdown-alert-note");
         expect(html).toContain('type="checkbox"');
-        expect(html).not.toMatch(/<script|<style|<iframe|<img|onclick|onerror|javascript:bad|alert\(1\)/);
+        expect(html).not.toMatch(/<script|<style|<iframe|onclick|onerror|javascript:bad|alert\(1\)/);
+        expect(html).toContain('<img data-image-source="x"');
+        expect(html).not.toMatch(/\ssrc=/);
+    });
+    it("preserves Markdown and HTML image metadata without enabling direct requests", () => {
+        const html = renderMarkdown('![Logo](./logo.svg "Vim")\n\n<img src="public/logo.svg" alt="Vim" width="80" height="80" onerror="bad()" srcset="https://tracker.test/a 2x" data-image-source="forged">');
+        expect(html).toContain('data-image-source="./logo.svg" alt="Logo" title="Vim"');
+        expect(html).toContain('data-image-source="public/logo.svg" alt="Vim" width="80" height="80"');
+        expect(html).not.toMatch(/\ssrc=|srcset|onerror|forged/);
     });
     it("handles supported Markdown names and word counts without a DOM", () => {
         expect(isMarkdown("README.MDOWN")).toBe(true);

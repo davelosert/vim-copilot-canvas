@@ -142,8 +142,8 @@ test("failed automatic writes retain the draft and keyboard save retries", async
     assert.deepEqual(errors, []);
 });
 
-test("external edits cannot overwrite a dirty draft", async () => {
-    const { path, page, errors, keys, state, command } = await editorPage();
+test("external edits automatically replace the open document without a warning", async () => {
+    const { path, page, errors, keys, state } = await editorPage();
     let release;
     const held = new Promise((resolve) => { release = resolve; });
     await page.route("**/api/save", async (route) => {
@@ -156,15 +156,12 @@ test("external edits cannot overwrite a dirty draft", async () => {
     assert.match(await page.locator(".cm-content").innerText(), /^Local /);
     await writeFile(path, "# External replacement\n");
     release();
-    await until(async () => assert.equal(await page.locator("#conflict").isVisible(), true));
-    await command("w");
-    await until(async () => assert.match(await page.locator("#notice").innerText(), /changed on disk/));
+    await until(async () => assert.equal((await page.locator(".cm-content").innerText()).trim(), "# External replacement"));
     assert.equal(await readFile(path, "utf8"), "# External replacement\n");
-    assert.match((await state()).content, /^Local /);
-    page.once("dialog", (dialog) => dialog.accept());
-    await page.locator("#reload-button").click();
-    await until(async () => assert.equal((await state()).content, "# External replacement\n"));
+    assert.equal((await state()).content, "# External replacement\n");
     await until(async () => assert.equal(await page.locator("#conflict").isVisible(), false));
+    await until(async () => assert.equal(await page.locator("#notice").isVisible(), false));
+    assert.equal(await page.locator("#save-status").innerText(), "Saved to disk");
     assert.deepEqual(errors, []);
 });
 
@@ -280,7 +277,7 @@ test("sanitized preview, responsive layouts, theme and shortcuts", async () => {
     const snapshot = await state();
     await store.update(document, '# Safe\n\n<script>window.pwned = true</script>\n\n<img src="https://example.com/tracker.png" onerror="window.pwned=true">\n\n<svg onload="window.pwned=true"><script>window.pwned=true</script></svg>\n\n[unsafe](javascript:alert(1))\n\n[external](https://example.com)\n', snapshot.revision);
     await until(async () => assert.equal(await page.locator("#preview h1").innerText(), "Safe"));
-    assert.equal(await page.locator("#preview script, #preview img").count(), 0);
+    await until(async () => assert.equal(await page.locator("#preview script, #preview img").count(), 0));
     assert.equal(await page.locator("#preview svg, #preview [onload], #preview [onerror]").count(), 0);
     assert.equal(await page.locator("#preview a[href^='javascript:']").count(), 0);
     assert.equal(await page.locator("#preview a").filter({ hasText: "unsafe" }).getAttribute("href"), null);

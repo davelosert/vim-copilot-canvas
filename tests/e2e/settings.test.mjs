@@ -43,6 +43,49 @@ async function settingsPage({ content = source, preferences } = {}) {
     return { temporary, path, settingsFile, start, page, errors, numbers, toggle, settingsButton };
 }
 
+test("Agent panel Vim preference survives reload and standard mode closes with a single Escape", async () => {
+    const { page, errors, settingsFile, settingsButton } = await settingsPage();
+    await settingsButton.click();
+    const checkbox = page.getByRole("checkbox", { name: "Vim mode in Agent panel", exact: true });
+    await until(async () => assert.equal(await checkbox.isEnabled(), true));
+    assert.equal(await checkbox.isChecked(), true);
+    await checkbox.uncheck();
+    await page.locator("#save-settings").click();
+    await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
+    assert.equal(JSON.parse(await readFile(settingsFile, "utf8")).agentVimMode, false);
+    await page.locator("#close-settings").click();
+    await page.reload();
+    const editor = page.locator("#editor > .cm-editor > .cm-scroller > .cm-content");
+    await editor.focus();
+    await page.keyboard.press("Control+i");
+    const prompt = page.getByRole("textbox", { name: "Agent prompt" });
+    await prompt.waitFor();
+    await page.keyboard.type("Standard editing");
+    assert.equal(await page.locator(".agent-header .mode").isVisible(), false);
+    await page.keyboard.press("Escape");
+    assert.equal(await prompt.count(), 0);
+    assert.equal(await editor.evaluate((element) => element === document.activeElement), true);
+    assert.deepEqual(errors, []);
+});
+
+test("toolbar displays the Modal V logo and hides it on narrow viewports", async () => {
+    const { page, errors } = await settingsPage();
+    const logo = page.locator(".logo");
+    assert.equal(await logo.isVisible(), true);
+    assert.equal(await logo.getAttribute("aria-hidden"), "true");
+    assert.equal(await logo.innerText(), "");
+    const svg = logo.locator("svg");
+    assert.equal(await svg.getAttribute("viewBox"), "0 0 32 32");
+    assert.equal(await svg.locator("path").count(), 2);
+    assert.deepEqual(await svg.evaluate((node) => {
+        const { width, height } = node.getBoundingClientRect();
+        return { width, height };
+    }), { width: 32, height: 32 });
+    await page.setViewportSize({ width: 480, height: 720 });
+    assert.equal(await logo.isVisible(), false);
+    assert.deepEqual(errors, []);
+});
+
 test("settings dialog exposes its controls and fits narrow viewports", async () => {
     const { page, errors, settingsButton } = await settingsPage();
     assert.equal(await settingsButton.locator('svg[aria-hidden="true"]').isVisible(), true);
