@@ -172,6 +172,9 @@ prove. Each independently mounted app must be disposed after its test.
 Build assets are shipped alongside `extension.mjs` and must be regenerated
 after frontend changes; do not edit generated files manually. Reload extensions
 after changing provider code.
+`npm run build` clears the generated `assets/` directory before bundling so obsolete hash-named chunks do not accumulate.
+Keep these assets committed: repository-based plugin installation does not install npm dependencies or run a build.
+GitHub treats `assets/` as generated output and collapses it in pull request diffs.
 
 The Copilot SDK is provided by the host's extension resolver, not installed as
 an npm dependency. For host-level checks, use an isolated extension installation

@@ -8,7 +8,7 @@
     "version:release": "changeset version && node scripts/release-metadata.mjs sync && npm install --package-lock-only --ignore-scripts",
     "release:check": "node scripts/release-metadata.mjs check",
     "release": "changeset publish",
-    "build": "esbuild src/frontend/main.js --bundle --format=esm --splitting --outdir=assets --entry-names=editor --chunk-names=chunks/[name]-[hash] --minify",
+    "build": "node scripts/build.mjs",
     "test": "npm run build && vitest run",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
