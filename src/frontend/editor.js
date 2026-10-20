@@ -87,10 +87,14 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
                     view.setState(state(snapshot));
                     attachVim();
                 } else {
+                    const { anchor, head } = view.state.selection.main;
                     view.dispatch({
                         changes: { from: 0, to: view.state.doc.length, insert: snapshot.content },
                         effects: lineBreaks.reconfigure(EditorState.lineSeparator.of(snapshot.content.includes("\r\n") ? "\r\n" : "\n")),
                     });
+                    // Full replacement maps the cursor to 0; keep it where the user was instead.
+                    const length = view.state.doc.length;
+                    view.dispatch({ selection: { anchor: Math.min(anchor, length), head: Math.min(head, length) } });
                 }
             } finally { applying = false; }
             configureLanguage(snapshot);

@@ -108,6 +108,16 @@ describe("mounted frontend with real CodeMirror", () => {
     const scrollToProgress = (pane, progress) => { pane.scrollTop = progress * (pane.scrollHeight - pane.clientHeight); };
     const nextFrames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
+    it("keeps the cursor position when the document is replaced from disk", async () => {
+        const { app, files } = await fixture();
+        const view = app.editor.view;
+        view.dispatch({ selection: { anchor: 12 } });
+        files.set("/work/a.md", "# Title\n\nfirst line changed\nsecond line");
+        await app.controller.reload();
+        expect(app.editor.readText()).toContain("first line changed");
+        expect(view.state.selection.main.head).toBe(12);
+    });
+
     it("keeps large-file editing available during background saves without save-status DOM updates", async () => {
         const { app, api, files } = await fixture();
         files.set("/work/a.md", longMarkdown);

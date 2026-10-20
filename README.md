@@ -26,9 +26,6 @@ Settings includes **Vim mode in Agent panel**, enabled by default and saved acro
 Disable it to use standard editing in prompts and batch comments, with a single **Esc** to close; the main editor stays in Vim mode.
 Changing this setting applies to open panels without clearing their text.
 
-File edits are saved automatically in the background, coalescing typing into batches at most once every 150 ms between writes without save-progress or success indicators.
-Editing stays available while writes are in flight; write failures and conflicts remain visible, and `:w` or **Cmd/Ctrl+S** flushes pending changes immediately.
-
 ## Installation
 
 Install the plugin from this GitHub repository in the Copilot App:

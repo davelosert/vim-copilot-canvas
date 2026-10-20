@@ -97,6 +97,19 @@ describe("document ownership and serialized persistence", () => {
         f.controller.dispose();
     });
 
+    it("does not treat its own disk writes as external changes on the next poll", async () => {
+        const f = fixture({
+            save: vi.fn(async () => snapshot({ content: "mine", revision: "r2", diskHash: "disk-mine" })),
+            document: vi.fn(async () => snapshot({ content: "mine", revision: "r2", diskHash: "disk-mine" })),
+        });
+        f.edit("mine");
+        await f.controller.save();
+        await f.controller.poll();
+        expect(f.api.reload).not.toHaveBeenCalled();
+        expect(f.documents).toHaveLength(1);
+        f.controller.dispose();
+    });
+
     it("is DOM-free, exposes copies, and persists a draft before saving disk", async () => {
         const f = fixture();
         f.controller.getState().current.path = "not-owned";

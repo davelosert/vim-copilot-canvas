@@ -93,6 +93,8 @@ export function createDocumentController({ api, readText, onState = () => {}, on
                         const snapshot = await api.save({ path: current.path, revision: current.revision });
                         if (disposed) return;
                         current = snapshot;
+                        // The server verified disk matched our base before writing, so this hash is our own write.
+                        if (!snapshot.conflict) observedDiskHash = snapshot.diskHash;
                     } catch (reason) {
                         if (reason.code === "disk_conflict") {
                             const latest = await api.document(current.path);
