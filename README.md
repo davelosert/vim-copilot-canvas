@@ -1,4 +1,4 @@
-<img src="public/logo.svg" alt="Vim Copilot Canvas logo: a green V with a block cursor" width="80" height="80">
+ <img src="public/logo.svg" alt="Vim Copilot Canvas logo: a green V with a block cursor" width="80" height="80">
 
 # Vim Copilot Canvas
 
@@ -6,9 +6,12 @@ A Canvas for the GitHub Copilot App that brings Vim-style navigation and editing
 
 - Inline prompts to the Copilot App, with the option to group feedback or change requests before sending them.
 - First-class GitHub-flavored Markdown support with live previews, built on [CodeMirror](https://codemirror.net/).
+- Open web links from the Markdown editor with **Cmd+click** on macOS or **Ctrl+click** on Windows/Linux; holding the modifier highlights the hovered link and shows the system link-pointer cursor. Ordinary clicks still position the cursor.
 - Local image previews (including SVG), resolved relative to the Markdown file within the workspace, up to 5 MiB per image. External images are not fetched.
+tejhiwfoejiofwejio
 - Bidirectional scroll sync between the Markdown editor and preview, matching relative document progress.
 - A Vim-tree-style file explorer for quickly navigating project files.
+- A live Markdown **Outline** tab beside **Files**, with indented headings, current-section highlighting, and click or Vim-style keyboard navigation.
 - Settings and theming, including relative line numbers and keyboard shortcut indicators.
 
 Collect requests in a **batch** to send them to the agent together; this is not a GitHub pull request review.
@@ -25,6 +28,12 @@ The batch bar shows the number of pending requests and offers **Send batch** and
 Settings includes **Vim mode in Agent panel**, enabled by default and saved across sessions.
 Disable it to use standard editing in prompts and batch comments, with a single **Esc** to close; the main editor stays in Vim mode.
 Changing this setting applies to open panels without clearing their text.
+
+Switch the sidebar to **Outline** to navigate the current Markdown document, including unsaved edits.
+ATX (`#`) and Setext (underlined) headings appear in document order; code blocks are excluded.
+Use `j` / `k`, arrows, `gg` / `G`, or Home / End to select a heading, then Enter / `l` / `o` to jump to it; Space jumps while keeping outline focus.
+Clicking a heading focuses its source line; preview-only mode opens the source alongside the preview.
+`Ctrl+w h` / `:Ex` focuses the selected sidebar tab's content, and Esc / `Ctrl+w l` returns to the editor.
 
 ## Installation
 
@@ -96,7 +105,7 @@ Opening the dialog refreshes persisted preferences without letting a stale read 
 Only changed editor compartments are reconfigured; changing shortcut visibility does not rebuild themes or line numbers.
 The backend retains atomic JSON writes so preferences survive restarts without partially written files.
 
-Use unit tests for logic, integration tests for filesystem and HTTP behavior, and Browser Mode for UI interactions. E2E tests exercise the built app. Dispose independently mounted apps after each test. Build assets are shipped with `extension.mjs`; regenerate them after frontend changes and do not edit them by hand. The host provides the Copilot SDK, so it is not an npm dependency.
+Use unit tests for logic, integration tests for filesystem and HTTP behavior, and Browser Mode for UI interactions. E2E tests exercise the built app, including link-cursor behavior in Chromium and WebKit iframes; install both engines with `npx playwright install chromium webkit` before running them locally. Dispose independently mounted apps after each test. Build assets are shipped with `extension.mjs`; regenerate them after frontend changes and do not edit them by hand. The host provides the Copilot SDK, so it is not an npm dependency.
 
 `npm run build` clears the generated `assets/` directory before bundling so obsolete hash-named chunks do not accumulate.
 Keep these assets committed: repository-based plugin installation does not install npm dependencies or run a build.
@@ -106,6 +115,6 @@ CI runs this check in the required **Tests** job before running the test suite, 
 
 ### Continuous integration and merging
 
-GitHub Actions runs the **Tests** job on Ubuntu with Node.js 24 for pushes to `main` and pull requests. It installs dependencies and Chromium, builds, and runs `npm test`. Optional Windows coverage can be started from **Actions > Windows tests > Run workflow** on `main`.
+GitHub Actions runs the **Tests** job on Ubuntu with Node.js 24 for pushes to `main` and pull requests. It installs dependencies, Chromium, and WebKit, builds, and runs `npm test`. Optional Windows coverage can be started from **Actions > Windows tests > Run workflow** on `main`.
 
 The `main` ruleset requires pull requests, an up-to-date branch, and a passing **Tests** check. Repository settings control these rules.
