@@ -28,33 +28,27 @@ for details.
 
 ## Development
 
-Development requires a Vitest-supported Node.js release:
-`^22.12.0 || ^24.0.0 || >=26.0.0`.
-
-`npm test` builds the production bundle before running all Vitest projects.
-Use `npm run build` to rebuild the shipped assets without running tests.
-Playwright supplies the Chromium driver for Vitest Browser Mode and the
-production-page tests; there is no separate Playwright test runner.
+Use Node.js `^22.12.0 || ^24.0.0 || >=26.0.0`.
+`npm test` builds the production bundle and runs all tests; `npm run build`
+rebuilds the shipped assets only.
 
 | Command | Scope |
 | --- | --- |
-| `npm run test:unit` | Pure logic, document-controller interleavings, and EditorState selections |
-| `npm run test:integration` | Real filesystem stores, workspace rules, and HTTP contracts |
-| `npm run test:browser` | Components and the assembled app in Vitest Browser Mode |
-| `npm run test:e2e` | Fresh production build and real HTTP-page tests |
-| `npm run test:watch` | Interactive Vitest development mode |
+| `npm run test:unit` | Logic and editor state |
+| `npm run test:integration` | Filesystem and HTTP behavior |
+| `npm run test:browser` | UI components and app in Vitest Browser Mode |
+| `npm run test:e2e` | Built app and HTTP pages |
+| `npm run test:watch` | Interactive test mode |
 
-### Opening the current checkout's canvas
+### Development canvas
 
-Repository sessions discover `.github/extensions/vim-canvas-dev/extension.mjs`, which registers **Vim Copilot Canvas (Dev)** (`vim-markdown-dev`) alongside the installed canvas.
-Ask Copilot to open that dev canvas to run the backend and serve the assets from the current worktree, rather than the installed version.
+Repository sessions discover `.github/extensions/vim-canvas-dev/extension.mjs`,
+which registers **Vim Copilot Canvas (Dev)** (`vim-markdown-dev`). Open it to
+run the backend and serve assets from the current checkout.
 
-Run `npm run build` after frontend changes and ask Copilot to reload extensions (`extensions_reload`) after backend or provider changes, or when first adding the dev registration to an existing session.
-Then open **Vim Copilot Canvas (Dev)**; without explicit file or root input it uses the session's working directory.
-
-Dev drafts, pending reviews, and the fallback welcome document live in a `vim-canvas-dev/` directory under session storage, outside the checkout.
-They survive extension reloads within that session but are isolated from other sessions and the installed canvas.
-Explicit file saves still update the files you are editing; global editor settings remain shared.
+Rebuild after frontend changes. Reload extensions after backend or provider
+changes. Dev drafts and reviews are stored separately per session; explicit
+file saves still update the files in the checkout.
 
 ### Releases
 
@@ -86,27 +80,6 @@ interrupted run. If a run pushed a tag but failed before creating its release,
 create the missing GitHub release from that tag and its changelog entry manually;
 Changesets skips versions that are already tagged.
 
-#### One-time repository setup
-
-1. Create and install a GitHub App on this repository with repository permissions
-   **Contents: Read and write** and **Pull requests: Read and write**. It must be
-   allowed to push the `changeset-release/main` branch and create PRs; no bypass
-   of `main` protection is needed.
-2. Under **Settings > Secrets and variables > Actions**, add the App's client ID
-   as a repository **variable** named `RELEASE_APP_CLIENT_ID`.
-3. Generate a private key for the App and store its complete PEM contents as a
-   repository **secret** named `RELEASE_APP_PRIVATE_KEY`.
-
-The workflow mints a short-lived installation token scoped to this repository,
-with only Contents and Pull requests write permissions. The token action revokes
-it when the job finishes. App-authenticated release-PR pushes trigger CI. GitHub's built-in
-`GITHUB_TOKEN` does not trigger subsequent push/PR workflows, so using it to
-create the PR would leave this repository's required **Tests** check missing.
-The same token creates release tags and GitHub releases through the Changesets
-action. The built-in token remains read-only; enabling Actions PR creation for
-that token is not required. No npm credentials or personal access tokens are
-required: Changesets tags private packages without publishing them to npm.
-
 `npm run release:check` verifies version consistency locally and in CI.
 `npm run version:release` is normally automation-owned; use it locally only to
 debug versioning, and inspect all generated changes before committing.
@@ -124,64 +97,24 @@ assets/                Generated editor bundle and lazy language chunks
 tests/                 unit, integration, browser, e2e, and fixture helpers
 ```
 
-The frontend uses plain ES modules and vanilla DOM. `app.js` composes the
-features; `main.js` is the production entry. The document controller owns the
-current snapshot, edit generations, serialized saves, file switching, reloads,
-polling, and conflicts. It has no DOM or CodeMirror dependency. The editor
-adapter owns CodeMirror state and configuration; preview, settings, reviews,
-explorer, and inline agent prompts own their own UI and communicate through
-explicit callbacks. Application disposal removes listeners and timers and
-destroys editor views, so components can be mounted independently in tests.
-Reloading temporarily makes the editor read-only to protect the replacement
-from concurrent input. Errors in unrelated UI features no longer mark the
-document as unsaved or conflicted.
+The frontend uses vanilla DOM and ES modules; `app.js` composes features and
+`main.js` is the production entry. The document controller manages edits,
+saves, reloads, and conflicts independently of the UI. Backend routes use
+persistent stores; shared modules must remain safe to import in both browser and
+Node.js environments.
 
-Backend transport handles loopback serving and request protection before
-dispatching to application routes. Persistent stores retain their individual
-locking and write semantics. Shared modules must not import browser or Node-only
-APIs. Keep the required `extension.mjs` at the installation root: source
-relocation does not change draft/review artifact locations or global settings.
-The project dev entry overrides draft/review storage with its session directory while reusing the same provider.
-
-Use unit tests for deterministic save/conflict races, integration tests for
-filesystem and HTTP behavior, and Browser Mode for real keyboard, focus, DOM,
-and component interactions. Production-page tests exercise built assets,
-navigation, reloads, and cross-layer behavior that a mounted component cannot
-prove. Each independently mounted app must be disposed after its test.
-
-Build assets are shipped alongside `extension.mjs` and must be regenerated
-after frontend changes; do not edit generated files manually. Reload extensions
-after changing provider code.
-
-The Copilot SDK is provided by the host's extension resolver, not installed as
-an npm dependency. For host-level checks, use an isolated extension installation
-and exercise open, `get_document`, `list_files`, `open_file`, `save`, and close.
-Do not reload or replace a user's installed extension merely to run repository
-tests.
+Use unit tests for logic, integration tests for filesystem and HTTP behavior,
+and Browser Mode for UI interactions. E2E tests exercise the built app. Dispose
+independently mounted apps after each test. Build assets are shipped with
+`extension.mjs`; regenerate them after frontend changes and do not edit them by
+hand. The host provides the Copilot SDK, so it is not an npm dependency.
 
 ### Continuous integration and merging
 
-GitHub Actions runs the **Tests** job on Ubuntu with Node.js 24 for every push to
-`main` and every pull request, regardless of target branch or changed files.
-It installs locked dependencies with `npm ci`, installs Chromium and its system
-dependencies with `npx playwright install --with-deps chromium`, builds the
-frontend, and runs `npm test` (all Vitest unit, integration, browser-component,
-and production-page projects).
-Use the same browser installation command when reproducing CI on Linux.
+GitHub Actions runs the **Tests** job on Ubuntu with Node.js 24 for pushes to
+`main` and pull requests. It installs dependencies and Chromium, builds, and
+runs `npm test`. Optional Windows coverage can be started from
+**Actions > Windows tests > Run workflow** on `main`.
 
-Windows coverage is opt-in to limit runner costs. After the workflow is merged
-into `main`, select **Actions > Windows tests > Run workflow** and choose `main`.
-It runs the same build and all Vitest projects on `windows-latest` with Node.js 24
-and only Chromium's headless shell (`npx playwright install --only-shell chromium`).
-Both browser-component and production-page tests run headlessly.
-It never runs on pushes or pull requests; manual dispatches for
-other branches or tags skip the job without allocating a Windows runner.
-This optional check is not required for merging.
-
-The active `main` ruleset requires pull requests and a passing **Tests** check
-from GitHub Actions, with the PR branch up to date before merging. No approving
-review is required. Direct pushes, force pushes, and branch deletion are blocked.
-Repository administrators, including the owner, can bypass requirements only
-through a pull request; this intentionally allows admins to merge with failed
-or missing tests, but does not permit direct pushes. These rules are configured
-in GitHub repository settings, separately from the workflow file.
+The `main` ruleset requires pull requests, an up-to-date branch, and a passing
+**Tests** check. Repository settings control these rules.
