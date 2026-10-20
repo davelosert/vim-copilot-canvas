@@ -5,6 +5,7 @@ const conflict = () => Object.assign(new Error("The file or draft changed while 
  */
 export function createDocumentController({ api, readText, onState = () => {}, onDocument = () => {}, onPoll = async () => {} }) {
     let current = null;
+    let observedDiskHash = null;
     let localVersion = 0;
     let persistedVersion = 0;
     let blocked = false;
@@ -43,12 +44,25 @@ export function createDocumentController({ api, readText, onState = () => {}, on
     function apply(snapshot, kind) {
         if (disposed) return;
         current = snapshot;
+        if (!snapshot.conflict) observedDiskHash = snapshot.diskHash;
         localVersion = persistedVersion = 0;
         blocked = saveFailed = false;
         error = null;
         status = snapshot.dirty ? "Draft recovered" : "All changes saved";
         onDocument({ ...snapshot }, { kind });
         emit();
+    }
+    async function reloadChangedDisk(latest) {
+        if (latest.diskHash === observedDiskHash && !latest.conflict) return false;
+        try {
+            const replacement = await api.reload({
+                path: current.path, revision: latest.revision, diskHash: latest.diskHash,
+            });
+            if (!disposed) apply(replacement, "replace");
+        } catch (reason) {
+            if (reason.code !== "disk_conflict" && reason.code !== "draft_conflict") throw reason;
+        }
+        return true;
     }
     async function flushDraft({ drain = true } = {}) {
         if (blocked) throw conflict();
@@ -80,8 +94,14 @@ export function createDocumentController({ api, readText, onState = () => {}, on
                         const snapshot = await api.save({ path: current.path, revision: current.revision });
                         if (disposed) return;
                         current = snapshot;
+                        if (!snapshot.conflict) observedDiskHash = snapshot.diskHash;
                     } catch (reason) {
-                        // A disk conflict must not prevent recovery of edits typed during save.
+                        if (reason.code === "disk_conflict") {
+                            const latest = await api.document(current.path);
+                            if (disposed) return;
+                            if (await reloadChangedDisk(latest)) return;
+                        }
+                        // A draft conflict must not prevent recovery of edits typed during save.
                         await flushDraft();
                         throw reason;
                     }
@@ -149,15 +169,41 @@ export function createDocumentController({ api, readText, onState = () => {}, on
             emit();
         }),
         poll: () => enqueue(async () => {
+            const versionAtPollStart = localVersion;
+            let snapshot = await api.document(current.path);
+            if (disposed) return;
+            if (snapshot.activePath && snapshot.activePath !== current.path) {
+                return openInternal(snapshot.activePath, { fromServer: true });
+            }
+            if (await reloadChangedDisk(snapshot)) {
+                if (!disposed) await onPoll();
+                return;
+            }
+            if (localVersion !== versionAtPollStart && snapshot.revision !== current.revision) throw conflict();
             if (blocked) return;
-            if (pending()) await flushChanges();
-            const snapshot = await api.document(current.path);
+            if (pending()) {
+                try {
+                    await flushChanges();
+                } catch (reason) {
+                    if (reason.code !== "disk_conflict") throw reason;
+                    snapshot = await api.document(current.path);
+                    if (disposed) return;
+                    if (await reloadChangedDisk(snapshot)) {
+                        if (!disposed) await onPoll();
+                        return;
+                    }
+                    throw reason;
+                }
+            }
+            if (disposed) return;
+            snapshot = await api.document(current.path);
             if (disposed) return;
             if (snapshot.activePath && snapshot.activePath !== current.path) {
                 return openInternal(snapshot.activePath, { fromServer: true });
             }
             await onPoll();
             if (disposed) return;
+            if (await reloadChangedDisk(snapshot)) return;
             if (snapshot.revision !== current.revision) {
                 if (pending()) throw conflict();
                 apply(snapshot, "replace");

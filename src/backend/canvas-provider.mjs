@@ -6,14 +6,14 @@ import { Workspace, resolveInitialTarget } from "./workspace.mjs";
 export const CANVAS_ID = "vim-markdown";
 
 /**
- * Installation-relative runtime paths. Persisted drafts and reviews stay under
- * the installation `artifacts/` directory regardless of source layout.
+ * Installation-relative resources with an optional external persistence root.
  * @param {string} root Installation root (the directory containing extension.mjs).
+ * @param {string} [artifactsDir] Defaults to the installation artifacts directory.
  */
-export function installationPaths(root) {
+export function installationPaths(root, artifactsDir = join(root, "artifacts")) {
     return {
         root,
-        artifacts: join(root, "artifacts"),
+        artifacts: artifactsDir,
         welcome: join(root, "resources", "welcome.md"),
     };
 }
@@ -77,16 +77,19 @@ export function createPanels({ store, root, sendMessage, startServer = defaultSt
  * @param {new (code: string, message: string) => Error} options.CanvasError
  * @param {DocumentStore} options.store
  * @param {ReturnType<typeof createPanels>} options.panels
+ * @param {string} [options.canvasId]
+ * @param {string} [options.displayName]
  */
-export function createVimCanvas({ createCanvas, CanvasError, store, panels }) {
+export function createVimCanvas({ createCanvas, CanvasError, store, panels,
+    canvasId = CANVAS_ID, displayName = "Vim Copilot Canvas" }) {
     const entry = (ctx) => {
         const value = panels.get(ctx.instanceId);
         if (!value) throw new CanvasError("editor_not_open", "Open this editor before invoking an action.");
         return value;
     };
     return createCanvas({
-        id: CANVAS_ID,
-        displayName: "Vim Copilot Canvas",
+        id: canvasId,
+        displayName,
         description: "Edit UTF-8 text files with Vim keybindings, syntax highlighting, a file explorer, conflict-aware saves, and a live preview for Markdown.",
         inputSchema: {
             type: "object",
@@ -146,11 +149,14 @@ export function createVimCanvas({ createCanvas, CanvasError, store, panels }) {
  * @param {string} options.root Installation root.
  * @param {{ createCanvas: Function, CanvasError: Function }} options.sdk
  * @param {(message: object) => Promise<string>} [options.sendMessage]
+ * @param {string} [options.canvasId]
+ * @param {string} [options.displayName]
+ * @param {string} [options.artifactsDir] External draft/review storage directory.
  */
-export function createProvider({ root, sdk, sendMessage, startServer }) {
-    const paths = installationPaths(root);
+export function createProvider({ root, sdk, sendMessage, startServer, canvasId, displayName, artifactsDir }) {
+    const paths = installationPaths(root, artifactsDir);
     const store = new DocumentStore(paths.artifacts, { welcomePath: paths.welcome });
     const panels = createPanels({ store, root, sendMessage, startServer });
-    const canvas = createVimCanvas({ createCanvas: sdk.createCanvas, CanvasError: sdk.CanvasError, store, panels });
+    const canvas = createVimCanvas({ createCanvas: sdk.createCanvas, CanvasError: sdk.CanvasError, store, panels, canvasId, displayName });
     return { paths, store, panels, canvas };
 }

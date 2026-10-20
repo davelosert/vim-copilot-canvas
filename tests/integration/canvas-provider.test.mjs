@@ -48,6 +48,7 @@ test("installation paths keep artifacts and resources under the installation roo
 test("canvas registration exposes the stable id, schema and actions", ({ onTestFinished }) => {
     return fixture(onTestFinished).then(({ canvas }) => {
         expect(canvas.id).toBe(CANVAS_ID);
+        expect(canvas.displayName).toBe("Vim Copilot Canvas");
         expect(canvas.inputSchema.properties).toHaveProperty("filePath");
         expect(canvas.inputSchema.properties).toHaveProperty("rootPath");
         expect(canvas.actions.map(({ name }) => name)).toEqual(["get_document", "save", "open_file", "list_files"]);
@@ -157,5 +158,57 @@ test("createProvider composes installation paths and serves installation assets"
         body: JSON.stringify({ path: join(root, "artifacts", "welcome.md"), prompt: "x",
             selections: [{ start: { line: 0, character: 0 }, end: { line: 0, character: 0 }, text: "" }] }),
     });
+
     expect(agent).toMatchObject({ status: 503, body: { error: "agent_unavailable" } });
+});
+
+test("dev identity and session persistence stay separate from checkout assets", async ({ onTestFinished }) => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), "vim-canvas-dev-")));
+    const root = join(base, "checkout");
+    const artifactsDir = join(base, "session", "vim-canvas-dev");
+    await mkdir(join(root, "public"), { recursive: true });
+    await mkdir(join(root, "resources"), { recursive: true });
+    await mkdir(join(root, "assets"), { recursive: true });
+    await writeFile(join(root, "public", "index.html"), "<p>worktree</p>");
+    await writeFile(join(root, "assets", "editor.js"), "// worktree bundle\n");
+    await writeFile(join(root, "resources", "welcome.md"), "# Dev welcome\n");
+    const options = { root, artifactsDir, sdk: fakeSdk, canvasId: "vim-markdown-dev", displayName: "Vim Copilot Canvas (Dev)" };
+    const providers = [];
+    onTestFinished(async () => {
+        await Promise.all(providers.map(({ panels }) => panels.closeAll()));
+        await rm(base, { recursive: true, force: true });
+    });
+    const provider = createProvider(options);
+    providers.push(provider);
+    expect(provider.canvas).toMatchObject({ id: options.canvasId, displayName: options.displayName });
+    expect(provider.paths).toEqual({ root, artifacts: artifactsDir, welcome: join(root, "resources", "welcome.md") });
+    const { url } = await provider.canvas.open({ instanceId: "dev", input: {} });
+    expect(await (await fetch(new URL(url).origin + "/")).text()).toBe("<p>worktree</p>");
+    expect(await (await fetch(new URL(url).origin + "/editor.js")).text()).toBe("// worktree bundle\n");
+    const document = await provider.store.open();
+    expect(document.path).toBe(join(artifactsDir, "welcome.md"));
+    expect(document.content).toBe("# Dev welcome\n");
+    await provider.store.update(document, "# Unsaved dev\n", document.revision);
+    const review = await api(url, "/api/review/add", {
+        method: "POST",
+        body: JSON.stringify({ path: document.path, prompt: "Revise",
+            selections: [{ start: { line: 0, character: 0 }, end: { line: 0, character: 1 }, text: "#" }] }),
+    });
+    expect(review.status).toBe(200);
+    expect((await stat(join(artifactsDir, "reviews"))).isDirectory()).toBe(true);
+    await provider.panels.closeAll();
+
+    const reopened = createProvider(options);
+    providers.push(reopened);
+    const next = await reopened.canvas.open({ instanceId: "reloaded", input: {} });
+    expect((await api(next.url, "/api/document")).body.content).toBe("# Unsaved dev\n");
+    expect((await api(next.url, "/api/review")).body.items).toHaveLength(1);
+    await expect(stat(join(root, "artifacts"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(document.path, "utf8")).resolves.toBe("# Dev welcome\n");
+
+    const isolated = createProvider({ ...options, artifactsDir: join(base, "other-session", "vim-canvas-dev") });
+    providers.push(isolated);
+    const other = await isolated.canvas.open({ instanceId: "other", input: {} });
+    expect((await api(other.url, "/api/document")).body.content).toBe("# Dev welcome\n");
+    expect((await api(other.url, "/api/review")).body.items).toEqual([]);
 });

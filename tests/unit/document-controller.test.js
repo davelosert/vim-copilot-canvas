@@ -36,6 +36,22 @@ function fixture(overrides = {}) {
 }
 
 describe("document ownership and serialized persistence", () => {
+    it("does not reload its own saved content when polling observes the new disk hash", async () => {
+        const f = fixture();
+        f.api.save.mockImplementation(async () => {
+            const saved = snapshot({ content: f.text(), revision: "saved", diskHash: "saved-disk" });
+            f.server(saved);
+            return saved;
+        });
+        f.edit("saved text");
+        await f.controller.save();
+        await f.controller.poll();
+        expect(f.api.reload).not.toHaveBeenCalled();
+        expect(f.documents).toHaveLength(1);
+        expect(f.text()).toBe("saved text");
+        f.controller.dispose();
+    });
+
     it("is DOM-free, exposes copies, and persists a draft before saving disk", async () => {
         const f = fixture();
         f.controller.getState().current.path = "not-owned";
@@ -93,18 +109,23 @@ describe("document ownership and serialized persistence", () => {
         f.controller.dispose();
     });
 
-    it("recovers edits typed during a disk conflict and still permits switching", async () => {
+    it("silently reloads the disk version after an autosave conflict and still permits switching", async () => {
         const entered = deferred(), result = deferred();
         const f = fixture();
         f.api.save.mockImplementationOnce(() => { entered.resolve(); return result.promise; });
+        f.api.document.mockResolvedValue(snapshot({
+            content: "first", revision: "r1", dirty: true, diskHash: "external-disk", conflict: true,
+        }));
         f.edit("first");
         await entered.promise;
         f.edit("recovery");
         result.reject(Object.assign(new Error("disk changed"), { code: "disk_conflict" }));
-        // Open queues behind the failed save and must persist, but not save, the conflicted file.
         await expect(f.controller.open("/work/b.md")).resolves.toBe(true);
-        expect(f.api.draft.mock.calls.map(([input]) => input.content)).toEqual(["first", "recovery"]);
+        expect(f.api.draft.mock.calls.map(([input]) => input.content)).toEqual(["first"]);
         expect(f.api.save).toHaveBeenCalledTimes(1);
+        expect(f.api.reload).toHaveBeenCalledWith({
+            path: "/work/a.md", revision: "r1", diskHash: "external-disk",
+        });
         expect(f.controller.getState().current.path).toBe("/work/b.md");
         f.controller.dispose();
     });
@@ -166,12 +187,38 @@ describe("document ownership and serialized persistence", () => {
     it("polls same-file replacements explicitly and reloads using latest revision/hash", async () => {
         const f = fixture();
         f.server(snapshot({ content: "external", revision: "r8", diskHash: "disk8" }));
+        f.api.reload.mockResolvedValueOnce(snapshot({ content: "external", revision: "r9", diskHash: "disk8" }));
         await f.controller.poll();
         expect(f.text()).toBe("external");
         expect(f.documents.at(-1)[1]).toEqual({ kind: "replace" });
+        f.server(snapshot({ content: "external", revision: "r9", diskHash: "disk8" }));
         await f.controller.reload();
-        expect(f.api.reload).toHaveBeenCalledWith({ path: "/work/a.md", revision: "r8", diskHash: "disk8" });
+        expect(f.api.reload).toHaveBeenCalledWith({ path: "/work/a.md", revision: "r9", diskHash: "disk8" });
         expect(f.controller.getState().status).toBe("Disk version loaded");
+        f.controller.dispose();
+    });
+
+    it("silently replaces a dirty draft when the open file changes on disk", async () => {
+        const f = fixture();
+        f.edit("local draft");
+        await f.controller.flushDraft();
+        f.api.document.mockResolvedValue(snapshot({
+            content: "local draft", revision: "r1", dirty: true, diskHash: "external-disk",
+        }));
+        f.api.reload.mockResolvedValue(snapshot({
+            content: "external", revision: "r2", diskHash: "external-disk",
+        }));
+
+        await f.controller.poll();
+
+        expect(f.api.reload).toHaveBeenCalledWith({
+            path: "/work/a.md", revision: "r1", diskHash: "external-disk",
+        });
+        expect(f.text()).toBe("external");
+        expect(f.controller.getState()).toMatchObject({
+            status: "All changes saved", blocked: false, saveFailed: false, error: null,
+            current: { conflict: false, dirty: false },
+        });
         f.controller.dispose();
     });
 
