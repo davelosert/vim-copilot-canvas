@@ -1,3 +1,5 @@
+<img src="public/logo.svg" alt="Vim Copilot Canvas logo: a green V with a block cursor" width="80" height="80">
+
 # Vim Copilot Canvas
 
 A Canvas for the GitHub Copilot App that brings Vim-style navigation and editing to your workspace, with:
