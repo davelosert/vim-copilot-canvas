@@ -10,7 +10,7 @@ import { createRoutes } from "./routes.mjs";
 const MAX_BODY_BYTES = 14 * 1024 * 1024;
 const CONTENT_SECURITY_POLICY =
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-    "connect-src 'self'; img-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
+    "connect-src 'self'; img-src data:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
 // URL path -> [installation-relative file, MIME type]. Only these files are served.
 const ASSETS = new Map([
