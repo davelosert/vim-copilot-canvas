@@ -4,6 +4,7 @@ A Canvas for the GitHub Copilot App that brings Vim-style navigation and editing
 
 - Inline prompts to the Copilot App, with the option to group feedback or change requests before sending them.
 - First-class GitHub-flavored Markdown support with live previews, built on [CodeMirror](https://codemirror.net/).
+- Bidirectional scroll sync between the Markdown editor and preview, matching relative document progress.
 - A Vim-tree-style file explorer for quickly navigating project files.
 - Settings and theming, including relative line numbers.
 
@@ -57,11 +58,13 @@ src/backend/           HTTP transport, routes, delivery, and persistent stores
 src/shared/            Browser/Node-safe theme catalog
 public/                HTML shell and stylesheet
 resources/             Bundled welcome document
-assets/                Generated editor bundle and lazy language chunks
+assets/                Generated editor bundle, Primer CSS, and lazy language chunks
 tests/                 unit, integration, browser, e2e, and fixture helpers
 ```
 
-The frontend uses vanilla DOM and ES modules; `app.js` composes features and `main.js` is the production entry. The document controller manages edits, saves, reloads, and conflicts independently of the UI. Backend routes use persistent stores; shared modules must remain safe to import in both browser and Node.js environments.
+The frontend uses vanilla DOM and ES modules; `app.js` composes features and `main.js` is the production entry. Inline Agent prompts and review actions use [Primer CSS](https://primer.style/css), not React; the locally served `primer.css` includes only needed primitives and theme tokens, without a global reset or runtime dependency. New Primer surfaces should use `primer-scope` and matching colour-mode attributes; theme updates must preserve the host's colour-mode attributes.
+
+The document controller manages edits, serialized saves, file switching, reloads, polling, and conflicts independently of the UI. It reloads the open document when disk content changes, replacing unsynced edits, and temporarily makes the editor read-only during reload. Backend routes use persistent stores; shared modules must remain safe to import in both browser and Node.js environments. Dispose independently mounted apps after each test.
 
 Use unit tests for logic, integration tests for filesystem and HTTP behavior, and Browser Mode for UI interactions. E2E tests exercise the built app. Dispose independently mounted apps after each test. Build assets are shipped with `extension.mjs`; regenerate them after frontend changes and do not edit them by hand. The host provides the Copilot SDK, so it is not an npm dependency.
 

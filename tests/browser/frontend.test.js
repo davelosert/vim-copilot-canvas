@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { mountApp } from "../../src/frontend/app.js";
 import { createExplorer } from "../../src/frontend/explorer.js";
+import "../../src/frontend/primer.css";
 
 const [markup, stylesheet] = await Promise.all(["/index.html", "/editor.css"].map(async (url) => (await fetch(url)).text()));
 const deferred = () => {
@@ -96,6 +97,80 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    const longMarkdown = Array.from({ length: 100 }, (_, index) =>
+        `## Section ${index + 1}\n\nParagraph with **formatted text**, a [link](https://example.com), and enough words to wrap across several lines in the editor.\n\n- First item\n- Second item\n`).join("\n");
+    const scrollProgress = (pane) => pane.scrollTop / (pane.scrollHeight - pane.clientHeight);
+    const scrollToProgress = (pane, progress) => { pane.scrollTop = progress * (pane.scrollHeight - pane.clientHeight); };
+    const nextFrames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    it("syncs scrolling in either direction across different content heights without feedback", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", longMarkdown);
+        await app.controller.reload();
+        const source = app.editor.view.scrollDOM, preview = $("preview");
+        await expect.poll(() => source.scrollHeight).toBeGreaterThan(source.clientHeight);
+        expect(preview.scrollHeight).toBeGreaterThan(preview.clientHeight);
+        expect(source.scrollHeight).not.toBe(preview.scrollHeight);
+        await nextFrames();
+
+        for (const pane of [source, preview]) {
+            const other = pane === source ? preview : source;
+            for (const progress of [0.35, 0.7, 1, 0]) {
+                scrollToProgress(pane, progress);
+                await expect.poll(() => Math.abs(scrollProgress(other) - scrollProgress(pane))).toBeLessThan(0.005);
+                await nextFrames();
+                expect(Math.abs(scrollProgress(pane) - progress)).toBeLessThan(0.03);
+                expect(scrollProgress(other)).toBeCloseTo(scrollProgress(pane), 2);
+            }
+        }
+    });
+
+    it("retains scroll progress through layout changes and live preview updates", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", longMarkdown);
+        await app.controller.reload();
+        const source = app.editor.view.scrollDOM, preview = $("preview");
+        await nextFrames();
+        scrollToProgress(preview, 0.6);
+        await expect.poll(() => Math.abs(scrollProgress(source) - scrollProgress(preview))).toBeLessThan(0.005);
+        expect(Math.abs(scrollProgress(preview) - 0.6)).toBeLessThan(0.03);
+        await userEvent.click(document.querySelector('[data-layout="preview"]'));
+        await nextFrames();
+        scrollToProgress(preview, 0.3);
+        await nextFrames();
+        await userEvent.click(document.querySelector('[data-layout="split"]'));
+        await expect.poll(() => Math.abs(scrollProgress(source) - scrollProgress(preview))).toBeLessThan(0.005);
+        expect(Math.abs(scrollProgress(preview) - 0.3)).toBeLessThan(0.03);
+
+        app.editor.view.dispatch({ changes: { from: app.editor.view.state.doc.length, insert: `\n${longMarkdown}` } });
+        await expect.poll(() => preview.querySelectorAll("h2").length).toBe(200);
+        await expect.poll(() => Math.abs(scrollProgress(preview) - scrollProgress(source))).toBeLessThan(0.01);
+    });
+
+    it("resets scrolling on file switches and handles documents without overflow", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", longMarkdown);
+        await app.controller.reload();
+        const source = app.editor.view.scrollDOM, preview = $("preview");
+        await nextFrames();
+        scrollToProgress(source, 0.8);
+        await expect.poll(() => Math.abs(scrollProgress(preview) - scrollProgress(source))).toBeLessThan(0.005);
+        expect(scrollProgress(preview)).toBeGreaterThan(0.7);
+        await app.controller.open("/work/b.js");
+        await nextFrames();
+        expect(source.scrollTop).toBe(0);
+        await app.controller.open("/work/a.md");
+        await expect.poll(() => preview.scrollTop).toBe(0);
+        expect(source.scrollTop).toBe(0);
+
+        files.set("/work/a.md", "# Short");
+        await app.controller.reload();
+        await nextFrames();
+        expect(preview.scrollTop).toBe(0);
+        expect(source.scrollTop).toBe(0);
+        expect(preview.scrollHeight).toBe(preview.clientHeight);
+    });
+
     it("applies the selected editor theme to the full canvas and follows system mode", async () => {
         document.documentElement.dataset.colorMode = "dark";
         await fixture();
@@ -210,7 +285,7 @@ describe("mounted frontend with real CodeMirror", () => {
         expect(content.getBoundingClientRect().height).toBeGreaterThanOrEqual(lineHeight * 3);
 
         const send = [...prompt.querySelectorAll(".agent-actions button")].find((el) => el.textContent.startsWith("Send to Agent"));
-        expect(send.classList.contains("primary")).toBe(true);
+        expect(send.classList.contains("btn-primary")).toBe(true);
         expect(send.querySelector("kbd").textContent).toMatch(/⏎|Enter/);
         expect(getComputedStyle(send.querySelector("kbd")).display).not.toBe("none");
         expect(send.getAttribute("aria-keyshortcuts")).toBe("Enter");
@@ -272,7 +347,7 @@ describe("mounted frontend with real CodeMirror", () => {
         expect($("save-status").textContent).toBe("Saved to disk");
     });
 
-    it("does not count server replacements as local edits and gates typing throughout reload", async () => {
+    it("automatically reloads disk conflicts without marking the replacement as a local edit", async () => {
         const { app, api } = await fixture();
         const original = api.getMockImplementation();
         const server = { ...app.controller.getState().current, content: "# External\n\nDisk version", revision: "external", conflict: true };
@@ -282,26 +357,18 @@ describe("mounted frontend with real CodeMirror", () => {
             if (path === "reload") { entered.resolve(input); return response.promise; }
             return original(path, input);
         });
-        await app.controller.poll();
-        expect(app.editor.readText()).toBe(server.content);
-        expect(app.controller.getState()).toMatchObject({ localVersion: 0, persistedVersion: 0, localPending: false });
-        expect(api.mock.calls.filter(([path]) => path === "draft")).toHaveLength(0);
-        await userEvent.click($("reload-button"));
+        const polling = app.controller.poll();
         await entered.promise;
-        expect(app.editor.view.state.readOnly).toBe(true);
-        expect(app.editor.view.contentDOM.contentEditable).toBe("false");
-        const before = app.editor.readText();
-        app.editor.focus();
-        await key("i");
-        await key("must not insert");
-        await key("{Escape}");
-        expect(app.editor.readText()).toBe(before);
         response.resolve({ ...server, content: "# Reloaded", conflict: false, revision: "reloaded" });
-        await expect.poll(() => app.editor.readText()).toBe("# Reloaded");
-        await expect.poll(() => app.editor.view.state.readOnly).toBe(false);
-        expect(app.controller.getState()).toMatchObject({ localVersion: 0, persistedVersion: 0, blocked: false });
-        await insert(app, "allowed ");
-        expect(app.editor.readText()).toContain("allowed ");
+        await polling;
+        expect(app.editor.readText()).toBe("# Reloaded");
+        expect(app.controller.getState()).toMatchObject({
+            localVersion: 0, persistedVersion: 0, localPending: false, blocked: false,
+            current: { conflict: false, dirty: false },
+        });
+        expect(api.mock.calls.filter(([path]) => path === "draft")).toHaveLength(0);
+        expect($("conflict").hidden).toBe(true);
+        expect($("notice").hidden).toBe(true);
     });
 
     it("disposes listeners, timers, editors and prompts and can remount without duplicate actions", async () => {

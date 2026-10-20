@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Vim Copilot Canvas</title>
+  <link rel="stylesheet" href="/primer.css">
   <link rel="stylesheet" href="/editor.css">
   <script type="module" src="/editor.js"></script>
 </head>
@@ -34,8 +35,8 @@
     <section class="preview-pane" aria-label="Markdown preview"><div class="pane-label"><span>PREVIEW</span><span>Live rendering</span></div><article id="preview"></article></section>
   </main>
   </div>
-  <section id="review" class="review" aria-label="Agent review" hidden>
-    <div class="review-bar"><button id="review-toggle" class="review-toggle" type="button" aria-expanded="false" aria-controls="review-list"><span id="review-count">Review</span></button><span class="review-actions"><button id="review-discard" type="button" title="Discard all pending comments (:AgentDiscard)">Discard</button><button id="review-send" class="primary" type="button" title="Send all comments in one message (Ctrl+Shift+Enter or :AgentSend)">Send review</button></span></div>
+  <section id="review" class="review primer-scope" data-color-mode="light" data-light-theme="light" data-dark-theme="dark" aria-label="Agent review" hidden>
+    <div class="review-bar"><button id="review-toggle" class="review-toggle" type="button" aria-expanded="false" aria-controls="review-list"><span id="review-count">Review</span></button><span class="review-actions"><button id="review-discard" class="btn btn-sm" type="button" title="Discard all pending comments (:AgentDiscard)">Discard</button><button id="review-send" class="btn btn-sm btn-primary" type="button" title="Send all comments in one message (Ctrl+Shift+Enter or :AgentSend)">Send review</button></span></div>
     <ol id="review-list" class="review-list" hidden></ol>
   </section>
   <footer class="statusbar"><div><span id="mode" class="mode">NORMAL</span><span id="save-status">Loading</span><span id="agent-status" role="status" aria-live="polite"></span></div><div><span id="words">0 words</span><span id="cursor">Ln 1, Col 1</span><span id="filetype" class="filetype">Markdown</span></div></footer>
@@ -75,7 +76,7 @@
       <kbd>R</kbd><span>Refresh tree</span><kbd>q / :Lex</kbd><span>Hide / toggle explorer</span>
       <kbd>:e path</kbd><span>Open a file relative to the root</span><kbd>Click</kbd><span>Open file / toggle folder</span>
     </div>
-    <div class="help-note">Edits save to disk automatically. Conflicting drafts are preserved across reloads. Lua configuration and Neovim plugins are not loaded. Browser/app shortcuts may take precedence.</div>
+    <div class="help-note">Edits save to disk automatically. Files changed externally reload automatically, replacing unsynced edits. Lua configuration and Neovim plugins are not loaded. Browser/app shortcuts may take precedence.</div>
   </dialog>
 </body>
 </html>

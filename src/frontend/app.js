@@ -8,6 +8,8 @@ import { createPreview } from "./preview.js";
 import { createReview } from "./review.js";
 import { createSettings } from "./settings.js";
 import { createShell } from "./shell.js";
+import { createScrollSync } from "./scroll-sync.js";
+import { isMarkdown } from "./markdown.js";
 
 /** Compose one panel. The synchronous handle permits disposal even during startup. */
 export function mountApp({ root = document, window: win = root.ownerDocument?.defaultView ?? root.defaultView,
@@ -20,7 +22,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         return element;
     };
     const elements = (names) => Object.fromEntries(Object.entries(names).map(([key, id]) => [key, $(id)]));
-    let disposed = false, interval, controller, shell, review, commands;
+    let disposed = false, interval, controller, shell, review, commands, scrollSync;
     const handlers = new AbortController();
     const listen = (element, type, fn) => element.addEventListener(type, fn, { signal: handlers.signal });
     const report = (error) => { if (!disposed) shell.error(error); };
@@ -76,6 +78,10 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             doc.documentElement.style.setProperty(property, value);
         }
         doc.documentElement.dataset.canvasTheme = dark ? "dark" : "light";
+        for (const scope of doc.querySelectorAll(".primer-scope")) {
+            scope.dataset.colorMode = dark ? "dark" : "light";
+        }
+        agent.updateTheme();
     };
     const open = async (path, { focusEditor = true } = {}) => {
         let opened = await controller.open(path);
@@ -107,7 +113,10 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             safe(controller.reload()).finally(() => editor.setEditable(true));
         },
     });
-    const preview = createPreview({ element: $("preview"), words: $("words"), readText: editor.readText });
+    const preview = createPreview({
+        element: $("preview"), words: $("words"), readText: editor.readText,
+        onRender: () => scrollSync?.refresh(),
+    });
     review = createReview({
         elements: elements({ bar: "review", count: "review-count", list: "review-list", send: "review-send", discard: "review-discard", toggle: "review-toggle", status: "agent-status" }),
         api, confirm, onError: report,
@@ -140,6 +149,10 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         onPoll: () => review.refresh(),
         onDocument: (snapshot, options) => {
             editor.applyDocument(snapshot, options);
+            scrollSync ??= createScrollSync({
+                editor: editor.view.scrollDOM, editorContent: editor.view.contentDOM, preview: $("preview"),
+            });
+            scrollSync.document(isMarkdown(snapshot.name), { reset: options.kind === "switch" });
             commands.attach();
             shell.document(snapshot);
             preview.document(snapshot);
@@ -202,6 +215,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             darkQuery.removeEventListener("change", updateTheme);
             controller.dispose(); commands.dispose(); explorer.dispose(); preferences.dispose();
             review.dispose(); preview.dispose(); shell.dispose();
+            scrollSync?.dispose();
             editor.dispose(); agent.dispose();
         },
     };
