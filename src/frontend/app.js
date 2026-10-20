@@ -78,6 +78,10 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             doc.documentElement.style.setProperty(property, value);
         }
         doc.documentElement.dataset.canvasTheme = dark ? "dark" : "light";
+        for (const scope of doc.querySelectorAll(".primer-scope")) {
+            scope.dataset.colorMode = dark ? "dark" : "light";
+        }
+        agent.updateTheme();
     };
     const open = async (path, { focusEditor = true } = {}) => {
         let opened = await controller.open(path);
