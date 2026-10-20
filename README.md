@@ -89,6 +89,7 @@ On pushes to `main`, the **Release** workflow creates or updates a
 changesets, generates `CHANGELOG.md`, and synchronizes `package.json`,
 `package-lock.json`, `plugin.json`, and the marketplace catalog's plugin and
 metadata versions. Do not bump these versions independently.
+Release preparation also runs a clean frontend build; the Changesets action commits any updated assets and deleted stale chunks in the same release PR as the version metadata.
 
 Merge that PR once its required **Tests** check passes. The next release run
 uses `changeset publish` to tag the private package and the Changesets action
@@ -100,6 +101,8 @@ unchanged on reruns. **Actions > Release > Run workflow** on `main` can retry an
 interrupted run. If a run pushed a tag but failed before creating its release,
 create the missing GitHub release from that tag and its changelog entry manually;
 Changesets skips versions that are already tagged.
+Before publishing, `npm run release` rebuilds and verifies that committed assets match the result.
+If drift is detected at this stage, publishing stops rather than tagging stale files; regenerate and commit the assets through a PR before retrying.
 
 #### One-time repository setup
 
@@ -175,6 +178,8 @@ after changing provider code.
 `npm run build` clears the generated `assets/` directory before bundling so obsolete hash-named chunks do not accumulate.
 Keep these assets committed: repository-based plugin installation does not install npm dependencies or run a build.
 GitHub treats `assets/` as generated output and collapses it in pull request diffs.
+Run `npm run build:check` to rebuild and reject any modified, deleted, staged, or untracked assets relative to the committed tree.
+CI runs this check in the required **Tests** job before running the test suite, so PRs must include current build output and remove stale chunks.
 
 The Copilot SDK is provided by the host's extension resolver, not installed as
 an npm dependency. For host-level checks, use an isolated extension installation

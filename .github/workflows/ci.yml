@@ -32,7 +32,7 @@ jobs:
           npm run changeset -- status --since origin/main
       - name: Install Chromium and system dependencies
         run: npx playwright install --with-deps chromium
-      - name: Build frontend
-        run: npm run build
+      - name: Verify committed frontend assets match a clean build
+        run: npm run build:check
       - name: Run all tests
         run: npm test
