@@ -24,10 +24,21 @@
   <div id="notice" role="status" aria-live="polite" hidden><span id="notice-text"></span><button id="dismiss-notice" aria-label="Dismiss message">×</button></div>
   <div id="conflict" class="conflict" hidden><span>The file changed on disk. Your draft is safe; saving is blocked.</span><button id="copy-button">Copy draft</button><button id="reload-button">Reload disk</button></div>
   <div id="shell" data-sidebar="open">
-  <aside id="explorer" aria-label="File explorer">
+  <aside id="explorer" aria-label="File explorer and document outline">
+    <div class="explorer-tabs" role="tablist" aria-label="Sidebar view">
+      <button id="files-tab" role="tab" aria-selected="true" aria-controls="files-panel" tabindex="0">Files</button>
+      <button id="outline-tab" role="tab" aria-selected="false" aria-controls="outline-panel" tabindex="-1">Outline</button>
+    </div>
+    <div id="files-panel" class="explorer-panel" role="tabpanel" aria-labelledby="files-tab">
     <div class="pane-label explorer-label"><span id="explorer-root" class="explorer-root">FILES</span><span class="explorer-actions"><button id="collapse-tree" class="mini" title="Collapse all" aria-label="Collapse all folders">⊟</button><button id="refresh-tree" class="mini" title="Refresh (R)" aria-label="Refresh file tree">↻</button></span></div>
     <div id="tree" role="tree" tabindex="0" aria-label="Files"></div>
     <div class="explorer-hint"><kbd>j</kbd><kbd>k</kbd> move · <kbd>l</kbd> open · <kbd>h</kbd> close · <kbd>⌃w l</kbd> editor</div>
+    </div>
+    <div id="outline-panel" class="explorer-panel" role="tabpanel" aria-labelledby="outline-tab" hidden>
+      <div class="pane-label explorer-label"><span id="outline-name" class="explorer-root">OUTLINE</span></div>
+      <div id="outline" role="listbox" tabindex="0" aria-label="Markdown headings"></div>
+      <div class="explorer-hint"><kbd>j</kbd><kbd>k</kbd> move · <kbd>Enter</kbd> jump · <kbd>Space</kbd> jump and stay · <kbd>Esc</kbd> editor</div>
+    </div>
   </aside>
   <div id="resize-explorer" role="separator" aria-orientation="vertical" aria-label="Resize file explorer"></div>
   <main id="workspace" data-layout="split">
@@ -91,6 +102,14 @@
         <kbd>Ctrl+i</kbd><span>Prompt the agent about the cursor line or selection</span><kbd>Enter</kbd><span>Send this prompt now, independently of the pending batch</span>
         <kbd>Ctrl+Enter</kbd><span>Add the prompt to the batch</span><kbd>Shift+Enter</kbd><span>New line in the prompt</span>
         <kbd>Ctrl+Shift+Enter / :AgentSend</kbd><span>Send the whole batch</span><kbd>Esc Esc / :AgentDiscard</kbd><span>Cancel the prompt / discard the batch</span>
+      </div>
+    </section>
+    <section class="shortcut-section">
+      <span class="eyebrow">MARKDOWN OUTLINE</span>
+      <div class="shortcut-grid">
+        <kbd>Files / Outline</kbd><span>Switch sidebar tabs (Left / Right when focused)</span>
+        <kbd>j / k / gg / G</kbd><span>Navigate headings</span><kbd>Click / Enter / l / o</kbd><span>Jump to heading in the editor</span>
+        <kbd>Space</kbd><span>Jump to heading, keep outline focus</span><kbd>Ctrl+w l / Esc</kbd><span>Back to the editor</span>
       </div>
     </section>
     <section class="shortcut-section">

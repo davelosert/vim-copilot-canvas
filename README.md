@@ -9,6 +9,7 @@ A Canvas for the GitHub Copilot App that brings Vim-style navigation and editing
 - Local image previews (including SVG), resolved relative to the Markdown file within the workspace, up to 5 MiB per image. External images are not fetched.
 - Bidirectional scroll sync between the Markdown editor and preview, matching relative document progress.
 - A Vim-tree-style file explorer for quickly navigating project files.
+- A live Markdown **Outline** tab beside **Files**, with indented headings, current-section highlighting, and click or Vim-style keyboard navigation.
 - Settings and theming, including relative line numbers and keyboard shortcut indicators.
 
 Collect requests in a **batch** to send them to the agent together; this is not a GitHub pull request review.
@@ -25,6 +26,12 @@ The batch bar shows the number of pending requests and offers **Send batch** and
 Settings includes **Vim mode in Agent panel**, enabled by default and saved across sessions.
 Disable it to use standard editing in prompts and batch comments, with a single **Esc** to close; the main editor stays in Vim mode.
 Changing this setting applies to open panels without clearing their text.
+
+Switch the sidebar to **Outline** to navigate the current Markdown document, including unsaved edits.
+ATX (`#`) and Setext (underlined) headings appear in document order; code blocks are excluded.
+Use `j` / `k`, arrows, `gg` / `G`, or Home / End to select a heading, then Enter / `l` / `o` to jump to it; Space jumps while keeping outline focus.
+Clicking a heading focuses its source line; preview-only mode opens the source alongside the preview.
+`Ctrl+w h` / `:Ex` focuses the selected sidebar tab's content, and Esc / `Ctrl+w l` returns to the editor.
 
 ## Installation
 

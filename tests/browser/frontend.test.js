@@ -93,6 +93,9 @@ async function fixture(options = {}) {
 }
 const $ = (id) => document.getElementById(id);
 const key = (text) => userEvent.keyboard(text);
+async function showSidebar() {
+    if ($("shell").dataset.sidebar !== "open") await userEvent.click($("toggle-explorer"));
+}
 async function insert(app, text) {
     app.editor.focus();
     await key("i");
@@ -107,6 +110,127 @@ describe("mounted frontend with real CodeMirror", () => {
     const scrollProgress = (pane) => pane.scrollTop / (pane.scrollHeight - pane.clientHeight);
     const scrollToProgress = (pane, progress) => { pane.scrollTop = progress * (pane.scrollHeight - pane.clientHeight); };
     const nextFrames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    it("shows Markdown headings in a separate outline tab and jumps to their exact source lines", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", [
+            "# **Title**", "", "## [Linked](https://example.com) `code`", "",
+            "```md", "# Not a heading", "```", "", "~~~", "## Also code", "~~~", "",
+            "    # Indented code", "", "Underlined", "----------", "",
+            "### Same", "", "### Same", "", "###### Deep", "", "Closing ###", "=======",
+        ].join("\r\n"));
+        await app.controller.reload();
+        await showSidebar();
+        await userEvent.click($("outline-tab"));
+        expect($("files-panel").hidden).toBe(true);
+        expect(getComputedStyle($("files-panel")).display).toBe("none");
+        expect($("outline-tab").getAttribute("aria-selected")).toBe("true");
+        expect($("outline-name").textContent).toBe("a.md");
+        const rows = [...$("outline").querySelectorAll(".outline-row")];
+        expect(rows.map((row) => row.querySelector(".tree-label").textContent)).toEqual([
+            "Title", "Linked code", "Underlined", "Same", "Same", "Deep", "Closing ###",
+        ]);
+        expect(rows.map((row) => Number(row.dataset.line))).toEqual([1, 3, 15, 18, 20, 22, 24]);
+        expect(rows.map((row) => row.querySelector(".outline-level").textContent)).toEqual(["H1", "H2", "H2", "H3", "H3", "H6", "H1"]);
+        expect(parseInt(rows[5].style.paddingLeft)).toBeGreaterThan(parseInt(rows[1].style.paddingLeft));
+        await userEvent.click(rows[4]);
+        expect(app.editor.view.state.doc.lineAt(app.editor.view.state.selection.main.head).number).toBe(20);
+        expect(app.editor.view.hasFocus).toBe(true);
+        expect(rows[4].getAttribute("aria-current")).toBe("location");
+
+        await showSidebar();
+        await userEvent.click($("files-tab"));
+        expect($("outline-panel").hidden).toBe(true);
+        expect($("tree").querySelector(".active").dataset.path).toBe("/work/a.md");
+        await userEvent.click($("outline-tab"));
+        expect($("outline").querySelectorAll(".outline-row")).toHaveLength(7);
+    });
+
+    it("updates the outline after local edits, undo, external reloads and file switches", async () => {
+        const { app, files } = await fixture();
+        await showSidebar();
+        await userEvent.click($("outline-tab"));
+        app.editor.view.dispatch({ changes: { from: app.editor.view.state.doc.length, insert: "\n\n## New **section**" } });
+        await expect.poll(() => $("outline").querySelectorAll(".outline-row").length).toBe(2);
+        expect($("outline").lastElementChild.querySelector(".tree-label").textContent).toBe("New section");
+        app.editor.focus();
+        await key("u");
+        await expect.poll(() => $("outline").querySelectorAll(".outline-row").length).toBe(1);
+        files.set("/work/a.md", "No headings");
+        await app.controller.reload();
+        expect($("outline").textContent).toBe("No headings in this document.");
+        expect($("outline").hasAttribute("aria-activedescendant")).toBe(false);
+        files.set("/work/a.md", "External title\n===\n\n## Updated");
+        await app.controller.reload();
+        expect($("outline").querySelectorAll(".outline-row")).toHaveLength(2);
+
+        await app.controller.open("/work/b.js");
+        expect($("outline-name").textContent).toBe("b.js");
+        expect($("outline").textContent).toBe("Outline is available for Markdown files.");
+        expect($("outline").hasAttribute("aria-activedescendant")).toBe(false);
+        await app.controller.open("/work/a.md");
+        expect($("outline").querySelectorAll(".outline-row")).toHaveLength(2);
+        expect($("outline-tab").getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("supports accessible sidebar tabs and Vim outline motions without losing outline focus", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", "# First\n\n## Second\n\n### Third");
+        await app.controller.reload();
+        await showSidebar();
+        $("files-tab").focus();
+        await key("{ArrowRight}");
+        expect(document.activeElement).toBe($("outline-tab"));
+        expect($("files-tab").tabIndex).toBe(-1);
+        await key("{ArrowDown}");
+        expect(document.activeElement).toBe($("outline"));
+        const selected = () => $("outline").querySelector('[aria-selected="true"]');
+        await key("j");
+        expect(selected().dataset.line).toBe("3");
+        await key(" ");
+        expect(document.activeElement).toBe($("outline"));
+        expect(app.editor.view.state.doc.lineAt(app.editor.view.state.selection.main.head).number).toBe(3);
+        await key("G");
+        expect(selected().dataset.line).toBe("5");
+        await key("gg");
+        expect(selected().dataset.line).toBe("1");
+        await key("{End}{ArrowUp}");
+        expect(selected().dataset.line).toBe("3");
+        await key("{Enter}");
+        expect(app.editor.view.hasFocus).toBe(true);
+        await key("{Control>}w{/Control}h");
+        expect(document.activeElement).toBe($("outline"));
+        await key("{Control>}w{/Control}l");
+        expect(app.editor.view.hasFocus).toBe(true);
+        await key("{Control>}w{/Control}h");
+        await key("q");
+        expect($("shell").dataset.sidebar).toBe("closed");
+        await userEvent.click($("toggle-explorer"));
+        expect(document.activeElement).toBe($("outline"));
+        await key("{Escape}");
+        expect(app.editor.view.hasFocus).toBe(true);
+        await showSidebar();
+        $("outline-tab").focus();
+        await key("{Home}");
+        expect(document.activeElement).toBe($("files-tab"));
+        expect($("files-panel").hidden).toBe(false);
+    });
+
+    it("reveals the source when jumping from preview-only and follows the editor's current section", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", "# First\n\nText\n\n## Next\n\nMore text");
+        await app.controller.reload();
+        app.editor.jumpTo(7);
+        await userEvent.click(document.querySelector('[data-layout="preview"]'));
+        await showSidebar();
+        await userEvent.click($("outline-tab"));
+        expect($("outline").querySelector('[aria-current="location"]').dataset.line).toBe("5");
+        await userEvent.click($("outline").firstElementChild);
+        expect($("workspace").dataset.layout).toBe("split");
+        expect(app.editor.view.hasFocus).toBe(true);
+        expect(app.editor.view.state.selection.main.head).toBe(0);
+        expect($("outline").querySelector('[aria-current="location"]').dataset.line).toBe("1");
+    });
 
     it("syncs scrolling in either direction across different content heights without feedback", async () => {
         const { app, files } = await fixture();
