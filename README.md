@@ -2,117 +2,31 @@
 
 # Vim Copilot Canvas
 
-A Canvas for the GitHub Copilot App that brings Vim-style navigation and editing to your workspace, with:
+A GitHub Copilot App canvas for navigating and editing workspace files **Vim-style**, based on [CodeMirror](https://codemirror.net/) and [@replit's codemirror-vim plugin](https://github.com/replit/codemirror-vim), with the ability to directly interact with your Copilot Agent Session for questions and changes.
 
-- Inline prompts to the Copilot App, with the option to group feedback or change requests before sending them.
-- First-class GitHub-flavored Markdown support with live previews, built on [CodeMirror](https://codemirror.net/).
-- Local image previews (including SVG), resolved relative to the Markdown file within the workspace, up to 5 MiB per image. External images are not fetched.
-- Bidirectional scroll sync between the Markdown editor and preview, matching relative document progress.
-- A Vim-tree-style file explorer for quickly navigating project files.
-- A live Markdown **Outline** tab beside **Files**, with indented headings, current-section highlighting, and click or Vim-style keyboard navigation.
-- Settings and theming, including relative line numbers and keyboard shortcut indicators.
+## Features
 
-Collect requests in a **batch** to send them to the agent together; this is not a GitHub pull request review.
-Pending batch comments have clickable comment icons in the editor's left-hand gutter.
-Click an icon (or **Edit** in the batch list) to reopen the comment inline, then choose **Save changes**, **Delete comment**, or **Cancel**.
-Clicking a batch list item opens its file, jumps to its location, and expands the comment inline.
-Each comment has its own icon, including when several comments refer to the same line.
-For multi-line selections, the icon appears on the last selected line.
-Click the same icon again to close the inline editor without saving changes.
-Edits retain the original selection context; saved comments survive reloads until the batch is sent or discarded.
-New prompts always use **Enter** to send immediately and **Cmd/Ctrl+Enter** to **Add to batch**.
-While a batch is pending, a third **Send batch** action (**Cmd/Ctrl+Shift+Enter**) sends the entire batch, including the current prompt if nonempty.
-The batch bar shows the number of pending requests and offers **Send batch** and **Discard batch**; `:AgentSend` and `:AgentDiscard` remain available.
-Settings includes **Vim mode in Agent panel**, enabled by default and saved across sessions.
-Disable it to use standard editing in prompts and batch comments, with a single **Esc** to close; the main editor stays in Vim mode.
-Changing this setting applies to open panels without clearing their text.
+- **Targeted Agent Assistance:** Select one or more lines in a file and prompt Copilot inline to hand them to the Agent for changes or answers to your questions. You can also **batch changes** before sending them off to the agent. This allows you to make targeted edits with ease.
+- **Premium Markdown Support:** Markdown files come with a synchronized live preview rendering GitHub-flavored markdown and a section navigation, allowing you to read and  edit Markdown files easily and quickly.
+- **Vim-Based File Navigation:** Navigate the files in your repository Vim-style in the side pane, so you can easily navigate your entire project.
+- **Theming & Settings:** Choose from all of CodeMirror's supported themes and choose different settings to individualize the experience.
 
-Switch the sidebar to **Outline** to navigate the current Markdown document, including unsaved edits.
-ATX (`#`) and Setext (underlined) headings appear in document order; code blocks are excluded.
-Use `j` / `k`, arrows, `gg` / `G`, or Home / End to select a heading, then Enter / `l` / `o` to jump to it; Space jumps while keeping outline focus.
-Clicking a heading focuses its source line; preview-only mode opens the source alongside the preview.
-`Ctrl+w h` / `:Ex` focuses the selected sidebar tab's content, and Esc / `Ctrl+w l` returns to the editor.
 
-## Installation
-
-Install the plugin from this GitHub repository in the Copilot App:
-
-1. In the app sidebar, click **Customize**, then **Plugins**.
-2. Click the settings icon beside the marketplace dropdown and add `davelosert/vim-copilot-canvas` as a marketplace.
-3. Find **Vim Copilot Canvas** in the plugin list and click **Install**.
-4. Open **Customize > Canvas** and start a session with the canvas.
-
-The repository includes a plugin manifest and marketplace catalog for this installation flow. See GitHub's guides to [customizing the Copilot App](https://docs.github.com/en/copilot/how-tos/github-copilot-app/customize-github-copilot-app) and [creating a plugin marketplace](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/plugins-marketplace) for details.
+See the [feature guide](docs/features.md) for usage details, [get started](docs/getting-started.md), and the [development guide](docs/development.md) to contribute.
 
 ## Development
 
-Use Node.js `^22.12.0 || ^24.0.0 || >=26.0.0`. `npm test` builds the production bundle and runs all tests; `npm run build` rebuilds the shipped assets only.
+Use Node.js `^22.12.0 || ^24.0.0 || >=26.0.0`. Install dependencies and run the test suite:
 
-| Command | Scope |
-| --- | --- |
-| `npm run test:unit` | Logic and editor state |
-| `npm run test:integration` | Filesystem and HTTP behavior |
-| `npm run test:browser` | UI components and app in Vitest Browser Mode |
-| `npm run test:e2e` | Built app and HTTP pages |
-| `npm run test:watch` | Interactive test mode |
-
-### Development canvas
-
-Repository sessions discover `.github/extensions/vim-canvas-dev/extension.mjs`, which registers **Vim Copilot Canvas (Dev)** (`vim-markdown-dev`). Open it to run the backend and serve assets from the current checkout.
-
-Rebuild after frontend changes. Reload extensions after backend or provider changes. Dev drafts and pending batches are stored separately per session; explicit file saves still update the files in the checkout.
-
-### Releases
-
-We use [Changesets](https://changesets.dev/) to manage releases. Every pull request with a user-facing change must include a changeset; documentation, tests, and maintenance-only changes may omit one.
-
-Run `npm run changeset`, select `vim-copilot-canvas`, choose a patch, minor, or major bump, and write a user-facing summary. Commit the generated `.changeset/*.md` file with the change.
-
-On pushes to `main`, the **Release** workflow creates or updates a release PR, which applies pending changesets and updates the version files and changelog. Do not bump these versions independently.
-Release preparation also runs a clean frontend build; the Changesets action commits any updated assets and deleted stale chunks in the same release PR as the version metadata.
-
-Once the release PR passes **Tests**, merge it. The next release run creates a GitHub release. Rerun **Actions > Release** on `main` to retry an interrupted run.
-Before publishing, `npm run release` rebuilds and verifies that committed assets match the result.
-If drift is detected at this stage, publishing stops rather than tagging stale files; regenerate and commit the assets through a PR before retrying.
-
-`npm run release:check` verifies version consistency locally and in CI. `npm run version:release` is normally automation-owned; use it locally only to debug versioning, and inspect all generated changes before committing.
-
-### Source layout and ownership
-
-```text
-extension.mjs          SDK discovery entry and provider wiring
-src/frontend/          Browser application and feature factories
-src/backend/           HTTP transport, routes, delivery, and persistent stores
-src/shared/            Browser/Node-safe theme catalog
-public/                HTML shell and stylesheet
-resources/             Bundled welcome document
-assets/                Generated editor bundle, Primer CSS, and lazy language chunks
-tests/                 unit, integration, browser, e2e, and fixture helpers
+```sh
+npm ci
+npm test
 ```
 
-The frontend uses vanilla DOM and ES modules; `app.js` composes features and `main.js` is the production entry. Inline Agent prompts and batch actions use [Primer CSS](https://primer.style/css), not React; the locally served `primer.css` includes only needed primitives and theme tokens, without a global reset or runtime dependency. New Primer surfaces should use `primer-scope` and matching colour-mode attributes; theme updates must preserve the host's colour-mode attributes.
+In a repository session, open **Vim Copilot Canvas (Dev)** (`vim-markdown-dev`) to run the app from the current checkout. See the [development guide](docs/development.md) for additional test commands, build details, and release instructions.
 
-The document controller manages edits, serialized saves, file switching, reloads, polling, and conflicts independently of the UI. It reloads the open document when disk content changes, replacing unsynced edits, and temporarily makes the editor read-only during reload. Backend routes use persistent stores; shared modules must remain safe to import in both browser and Node.js environments. Dispose independently mounted apps after each test.
-Batch internals retain the existing `review` API paths, storage directories, and DOM hooks for compatibility with saved requests.
+## Acknowledgments
 
-Settings apply immediately as an in-memory preview; only **Save** writes changed preferences to disk.
-**Discard**, closing the dialog, and Escape restore the last saved preferences without writing.
-While a save is in flight, duplicate saves and dismissal are blocked; further previews remain editable but require another explicit Save.
-Failed saves keep the preview and display an error so the user can retry or discard it.
-Opening the dialog refreshes persisted preferences without letting a stale read overwrite newer local edits.
-Only changed editor compartments are reconfigured; changing shortcut visibility does not rebuild themes or line numbers.
-The backend retains atomic JSON writes so preferences survive restarts without partially written files.
+A huge shoutout to [CodeMirror](https://codemirror.net/) and [Replit](https://github.com/replit/codemirror-vim) for their great libraries, which made creating this canvas a breeze.
 
-Use unit tests for logic, integration tests for filesystem and HTTP behavior, and Browser Mode for UI interactions. E2E tests exercise the built app. Dispose independently mounted apps after each test. Build assets are shipped with `extension.mjs`; regenerate them after frontend changes and do not edit them by hand. The host provides the Copilot SDK, so it is not an npm dependency.
-
-`npm run build` clears the generated `assets/` directory before bundling so obsolete hash-named chunks do not accumulate.
-Keep these assets committed: repository-based plugin installation does not install npm dependencies or run a build.
-GitHub treats `assets/` as generated output and collapses it in pull request diffs.
-Run `npm run build:check` to rebuild and reject any modified, deleted, staged, or untracked assets relative to the committed tree.
-CI runs this check in the required **Tests** job before running the test suite, so PRs must include current build output and remove stale chunks.
-
-### Continuous integration and merging
-
-GitHub Actions runs the **Tests** job on Ubuntu with Node.js 24 for pushes to `main` and pull requests. It installs dependencies and Chromium, builds, and runs `npm test`. Optional Windows coverage can be started from **Actions > Windows tests > Run workflow** on `main`.
-
-The `main` ruleset requires pull requests, an up-to-date branch, and a passing **Tests** check. Repository settings control these rules.
+Consider contributing to or supporting these projects!
