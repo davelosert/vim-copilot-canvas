@@ -2,7 +2,9 @@
 
 # Vim Copilot Canvas
 
-A GitHub Copilot App canvas for navigating and editing workspace files **Vim-style**, based on [CodeMirror](https://codemirror.net/) and [@replit's codemirror-vim plugin](https://github.com/replit/codemirror-vim), with the ability to directly interact with your Copilot Agent Session for questions and changes.
+A [GitHub Copilot App canvas](https://docs.github.com/en/copilot/how-tos/github-copilot-app/working-with-canvas-extensions) for navigating and editing workspace files **Vim-style** with the ability to **directly interact with your Copilot Agent**.
+
+Based on [CodeMirror](https://codemirror.net/) and [@replit's codemirror-vim plugin](https://github.com/replit/codemirror-vim),
 
 ## Features
 
