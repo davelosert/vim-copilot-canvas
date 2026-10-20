@@ -7,6 +7,7 @@ to your workspace, with:
   requests before sending them.
 - First-class GitHub-flavored Markdown support with live previews, built on
   [CodeMirror](https://codemirror.net/).
+- Bidirectional scroll sync between the Markdown editor and preview, matching relative document progress.
 - A Vim-tree-style file explorer for quickly navigating project files.
 - Settings and theming, including relative line numbers.
 
