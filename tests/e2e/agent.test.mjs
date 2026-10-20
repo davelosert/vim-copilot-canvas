@@ -111,6 +111,8 @@ test("Primer prompt and review controls follow live themes without changing the 
     await page.evaluate(() => { document.documentElement.dataset.colorMode = "light"; });
     await page.locator("#settings-button").click();
     await page.locator("#editor-theme").selectOption("dracula");
+    await page.locator("#save-settings").click();
+    await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
     await page.locator("#close-settings").click();
     await until(async () => assert.equal(await scope.getAttribute("data-color-mode"), "dark"));
     assert.equal(await page.locator("html").getAttribute("data-color-mode"), "light");

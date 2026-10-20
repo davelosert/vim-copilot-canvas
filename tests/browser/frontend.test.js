@@ -16,6 +16,7 @@ afterEach(() => {
     document.body.replaceChildren();
     delete document.documentElement.dataset.canvasTheme;
     delete document.documentElement.dataset.colorMode;
+    delete document.documentElement.dataset.showKeyboardShortcutIndicators;
     for (const property of ["--editor-accent", "--editor-accent-contrast", "--editor-surface", "--editor-page",
         "--editor-canvas", "--editor-text", "--editor-muted", "--editor-border", "--editor-soft",
         "--editor-selection", "--editor-success", "--editor-warning", "--editor-danger", "--editor-important",
@@ -32,7 +33,7 @@ function fakeApi() {
     ]);
     let revision = 0;
     let current = { path: "/work/a.md", name: "a.md", content: files.get("/work/a.md"), revision: "r0", diskHash: "d0", dirty: false, conflict: false };
-    let settings = { relativeLineNumbers: false, theme: "system" };
+    let settings = { relativeLineNumbers: false, showKeyboardShortcutIndicators: true, theme: "system" };
     let items = [];
     const tree = () => ({ root: "/work", rootName: "work", entries: [...files.keys()].map((path) => ({ path, name: path.split("/").pop(), type: "file" })) });
     const api = vi.fn(async (path, input) => {
@@ -252,8 +253,8 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("settings-button"));
         await expect.poll(() => $("settings-status").textContent).toBe("");
         await userEvent.click($("relative-line-numbers"));
-        await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
         await userEvent.selectOptions($("editor-theme"), "dracula");
+        await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
         expect(app.editor.readText()).toBe(content);
         expect(app.editor.view.state.selection.main.head).toBe(selection);
@@ -262,6 +263,222 @@ describe("mounted frontend with real CodeMirror", () => {
         await key("u");
         await expect.poll(() => app.editor.readText()).toBe("# Title\n\nfirst line\nsecond line");
         expect(api.mock.calls.some(([path, input]) => path === "settings" && input?.relativeLineNumbers)).toBe(true);
+    });
+
+    it("shows or hides keyboard shortcut indicators throughout the canvas without disabling shortcuts", async () => {
+        const { app } = await fixture();
+        expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("true");
+        expect(getComputedStyle(document.querySelector(".explorer-hint")).display).not.toBe("none");
+        app.editor.focus();
+        await key("{Control>}i{/Control}");
+        await expect.poll(() => document.querySelector(".agent-prompt")).toBeTruthy();
+
+        await userEvent.click($("settings-button"));
+        await userEvent.click($("show-keyboard-shortcut-indicators"));
+        expect($("settings-status").textContent).toBe("Unsaved changes.");
+        expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("false");
+        expect(getComputedStyle(document.querySelector(".explorer-hint")).display).toBe("none");
+        expect(getComputedStyle(document.querySelector(".agent-actions kbd")).display).toBe("none");
+        expect(getComputedStyle($("review-send").querySelector("kbd")).display).toBe("none");
+        expect(getComputedStyle(document.querySelector(".agent-hint")).display).toBe("none");
+        expect(getComputedStyle($("help").querySelector(".shortcut-section")).display).toBe("none");
+
+        await userEvent.click($("show-keyboard-shortcut-indicators"));
+        expect($("settings-status").textContent).toBe("");
+        expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("true");
+        expect(getComputedStyle(document.querySelector(".agent-actions kbd")).display).not.toBe("none");
+        expect(getComputedStyle($("review-send").querySelector("kbd")).display).not.toBe("none");
+        await userEvent.click($("close-settings"));
+        const promptInput = document.querySelector('.agent-prompt [aria-label="Agent prompt"]');
+        await userEvent.click(promptInput);
+        await key("shortcut still works{Enter}");
+        await expect.poll(() => document.querySelector(".agent-prompt")).toBeNull();
+    });
+
+    it("previews settings without writing or rebuilding unrelated editor state, then persists only on Save", async () => {
+        const { app, api } = await fixture();
+        await userEvent.click($("settings-button"));
+        await expect.poll(() => $("settings-status").textContent).toBe("");
+        const response = deferred();
+        const original = api.getMockImplementation();
+        api.mockImplementation((path, input) => path === "settings" && input ? response.promise : original(path, input));
+        const state = app.editor.view.state;
+        const theme = app.editor.currentTheme();
+        const dispatch = vi.spyOn(app.editor.view, "dispatch");
+        const repaint = vi.spyOn(document.documentElement.style, "setProperty");
+        const before = $("settings").getBoundingClientRect();
+        const disabledChanges = [];
+        const observer = new MutationObserver((records) => disabledChanges.push(...records));
+        for (const id of ["relative-line-numbers", "show-keyboard-shortcut-indicators", "editor-theme"]) {
+            observer.observe($(id), { attributes: true, attributeFilter: ["disabled"] });
+        }
+        try {
+            expect($("save-settings").disabled).toBe(true);
+            expect($("discard-settings").disabled).toBe(true);
+            api.mockClear();
+            await userEvent.click($("show-keyboard-shortcut-indicators"));
+            expect($("settings-status").textContent).toBe("Unsaved changes.");
+            expect(api).not.toHaveBeenCalled();
+            expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("false");
+            expect(getComputedStyle(document.querySelector(".explorer-hint")).display).toBe("none");
+            expect(document.activeElement).toBe($("show-keyboard-shortcut-indicators"));
+            for (const id of ["relative-line-numbers", "show-keyboard-shortcut-indicators", "editor-theme"]) {
+                expect($(id).disabled).toBe(false);
+            }
+            expect($("settings").getBoundingClientRect().height).toBe(before.height);
+            expect($("settings").getBoundingClientRect().top).toBe(before.top);
+            expect(app.editor.view.state).toBe(state);
+            expect(app.editor.currentTheme()).toBe(theme);
+            expect(dispatch).not.toHaveBeenCalled();
+            expect(repaint).not.toHaveBeenCalled();
+
+            await userEvent.click($("save-settings"));
+            expect(api).toHaveBeenCalledExactlyOnceWith("settings", { showKeyboardShortcutIndicators: false });
+            expect($("settings-status").textContent).toBe("Saving settings...");
+            expect($("save-settings").disabled).toBe(true);
+            expect($("discard-settings").disabled).toBe(true);
+            response.resolve(await original("settings", { showKeyboardShortcutIndicators: false }));
+            await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+            expect($("settings").getBoundingClientRect().height).toBe(before.height);
+            expect(app.editor.view.state).toBe(state);
+            expect(dispatch).not.toHaveBeenCalled();
+            expect(repaint).not.toHaveBeenCalled();
+            expect(disabledChanges).toHaveLength(0);
+
+            api.mockImplementation(original);
+            await userEvent.click($("relative-line-numbers"));
+            expect(dispatch).toHaveBeenCalledTimes(1);
+            expect(app.editor.currentTheme()).toBe(theme);
+            expect(repaint).not.toHaveBeenCalled();
+        } finally { observer.disconnect(); }
+    });
+
+    it("saves a snapshot without automatically persisting newer previews or letting the response overwrite them", async () => {
+        const { app, api } = await fixture();
+        await userEvent.click($("settings-button"));
+        await expect.poll(() => $("settings-status").textContent).toBe("");
+        const writes = [];
+        const original = api.getMockImplementation();
+        api.mockImplementation((path, input) => {
+            if (path !== "settings" || !input) return original(path, input);
+            const response = deferred();
+            writes.push({ input, ...response });
+            return response.promise;
+        });
+        await userEvent.click($("show-keyboard-shortcut-indicators"));
+        await userEvent.click($("show-keyboard-shortcut-indicators"));
+        await userEvent.click($("show-keyboard-shortcut-indicators"));
+        await userEvent.click($("show-keyboard-shortcut-indicators"));
+        await userEvent.click($("relative-line-numbers"));
+        await userEvent.selectOptions($("editor-theme"), "dracula");
+        expect(writes).toHaveLength(0);
+        expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("true");
+        expect(getComputedStyle(document.documentElement).getPropertyValue("--editor-canvas").trim()).toBe("#282a36");
+        await userEvent.click($("save-settings"));
+        expect(writes).toHaveLength(1);
+        expect(writes[0].input).toEqual({ relativeLineNumbers: true, theme: "dracula" });
+        await userEvent.selectOptions($("editor-theme"), "nord");
+        await userEvent.click($("show-keyboard-shortcut-indicators"));
+        expect($("close-settings").disabled).toBe(true);
+        expect($("discard-settings").disabled).toBe(true);
+        $("save-settings").click();
+        await key("{Escape}");
+        expect($("settings").open).toBe(true);
+        const theme = app.editor.currentTheme();
+        writes[0].resolve(await original("settings", writes[0].input));
+        await expect.poll(() => $("settings-status").textContent).toBe("Unsaved changes.");
+        expect(writes).toHaveLength(1);
+        expect((await original("settings")).theme).toBe("dracula");
+        expect($("show-keyboard-shortcut-indicators").checked).toBe(false);
+        expect($("relative-line-numbers").checked).toBe(true);
+        expect($("editor-theme").value).toBe("nord");
+        expect(app.editor.currentTheme()).toBe(theme);
+        await userEvent.click($("save-settings"));
+        expect(writes).toHaveLength(2);
+        expect(writes[1].input).toEqual({ showKeyboardShortcutIndicators: false, theme: "nord" });
+        writes[1].resolve(await original("settings", writes[1].input));
+        await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        expect(await original("settings")).toEqual({ showKeyboardShortcutIndicators: false, relativeLineNumbers: true, theme: "nord" });
+    });
+
+    it("ignores a stale settings refresh and keeps failed Save previews available for retry", async () => {
+        const { api } = await fixture();
+        const original = api.getMockImplementation();
+        const refresh = deferred(), first = deferred(), second = deferred();
+        let writes = 0;
+        api.mockImplementation((path, input) => {
+            if (path !== "settings") return original(path, input);
+            if (!input) return refresh.promise;
+            return ++writes === 1 ? first.promise : second.promise;
+        });
+        await userEvent.click($("settings-button"));
+        await userEvent.click($("show-keyboard-shortcut-indicators"));
+        refresh.resolve({ relativeLineNumbers: false, theme: "dracula", showKeyboardShortcutIndicators: true });
+        await expect.poll(() => $("settings-status").textContent).toBe("Unsaved changes.");
+        expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("false");
+        expect($("editor-theme").value).toBe("system");
+        expect(writes).toBe(0);
+        await userEvent.click($("relative-line-numbers"));
+        await userEvent.click($("save-settings"));
+        first.reject(new Error("Disk unavailable"));
+        await expect.poll(() => $("settings-status").textContent).toContain("Disk unavailable");
+        expect(writes).toBe(1);
+        expect($("show-keyboard-shortcut-indicators").checked).toBe(false);
+        expect($("relative-line-numbers").checked).toBe(true);
+        expect(await original("settings")).toEqual({ relativeLineNumbers: false, theme: "system", showKeyboardShortcutIndicators: true });
+        await userEvent.click($("save-settings"));
+        expect(writes).toBe(2);
+        second.resolve(await original("settings", { relativeLineNumbers: true, showKeyboardShortcutIndicators: false }));
+        await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        expect(await original("settings")).toEqual({ relativeLineNumbers: true, theme: "system", showKeyboardShortcutIndicators: false });
+    });
+
+    it.each(["discard-settings", "close-settings", "Escape"])("restores the last saved settings without a write on %s", async (action) => {
+        const { app, api } = await fixture();
+        await userEvent.click($("settings-button"));
+        await expect.poll(() => $("settings-status").textContent).toBe("");
+        const original = api.getMockImplementation();
+        await userEvent.selectOptions($("editor-theme"), "dracula");
+        await userEvent.click($("relative-line-numbers"));
+        await userEvent.click($("save-settings"));
+        await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        const saved = await original("settings");
+        api.mockClear();
+        const content = app.editor.readText();
+        const selection = app.editor.view.state.selection;
+        await userEvent.selectOptions($("editor-theme"), "nord");
+        await userEvent.click($("relative-line-numbers"));
+        await userEvent.click($("show-keyboard-shortcut-indicators"));
+        if (action === "Escape") await key("{Escape}");
+        else await userEvent.click($(action));
+        await expect.poll(() => $("editor-theme").value).toBe("dracula");
+        expect($("relative-line-numbers").checked).toBe(true);
+        expect($("show-keyboard-shortcut-indicators").checked).toBe(true);
+        expect(getComputedStyle(document.documentElement).getPropertyValue("--editor-canvas").trim()).toBe("#282a36");
+        expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("true");
+        expect(app.editor.readText()).toBe(content);
+        expect(app.editor.view.state.selection).toBe(selection);
+        expect(api).not.toHaveBeenCalled();
+        expect(await original("settings")).toEqual(saved);
+        expect($("settings").open).toBe(action === "discard-settings");
+        expect($("save-settings").disabled).toBe(true);
+        expect($("discard-settings").disabled).toBe(true);
+    });
+
+    it("invalidates a pending settings refresh when the dialog is closed", async () => {
+        const { api } = await fixture();
+        const refresh = deferred();
+        const original = api.getMockImplementation();
+        api.mockImplementation((path, input) => path === "settings" ? refresh.promise : original(path, input));
+        await userEvent.click($("settings-button"));
+        await userEvent.selectOptions($("editor-theme"), "dracula");
+        await userEvent.click($("close-settings"));
+        refresh.resolve({ relativeLineNumbers: true, theme: "nord", showKeyboardShortcutIndicators: false });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect($("editor-theme").value).toBe("system");
+        expect($("relative-line-numbers").checked).toBe(false);
+        expect($("show-keyboard-shortcut-indicators").checked).toBe(true);
     });
 
     it("navigates explorer with keyboard, loads a local language, restores Markdown layout and resets per-file undo", async () => {
@@ -342,6 +559,15 @@ describe("mounted frontend with real CodeMirror", () => {
         await expect.poll(() => $("settings-status").textContent).toBe("");
         expect($("agent-vim-mode").checked).toBe(true);
         await userEvent.click($("agent-vim-mode"));
+        expect(document.querySelector(".agent-header .mode").hidden).toBe(true);
+        expect(api.mock.calls.filter(([path, input]) => path === "settings" && input)).toHaveLength(0);
+        await userEvent.click($("discard-settings"));
+        expect($("agent-vim-mode").checked).toBe(true);
+        expect(document.querySelector(".agent-header .mode").hidden).toBe(false);
+        expect(document.querySelector(".agent-input .cm-content").textContent).toBe("Keep this");
+        expect(api.mock.calls.filter(([path, input]) => path === "settings" && input)).toHaveLength(0);
+        await userEvent.click($("agent-vim-mode"));
+        await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
         await userEvent.click($("close-settings"));
         expect(document.querySelector(".agent-header .mode").hidden).toBe(true);
@@ -361,6 +587,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("settings-button"));
         await expect.poll(() => $("settings-status").textContent).toBe("");
         await userEvent.click($("agent-vim-mode"));
+        await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
         await userEvent.click($("close-settings"));
         expect(document.querySelector(".agent-header .mode").hidden).toBe(false);

@@ -33,6 +33,7 @@ async function settingsPage({ content = source, preferences } = {}) {
         await until(async () => assert.equal(await page.locator("#relative-line-numbers").isEnabled(), true));
         assert.equal(await page.locator("#cursor").innerText(), originalCursor, "opening settings preserves cursor");
         await page.locator("#relative-line-numbers").setChecked(enabled);
+        await page.locator("#save-settings").click();
         await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
         assert.equal(await page.locator("#cursor").innerText(), originalCursor, "saving settings preserves cursor");
         await page.locator("#close-settings").click();
@@ -49,6 +50,7 @@ test("Agent panel Vim preference survives reload and standard mode closes with a
     await until(async () => assert.equal(await checkbox.isEnabled(), true));
     assert.equal(await checkbox.isChecked(), true);
     await checkbox.uncheck();
+    await page.locator("#save-settings").click();
     await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
     assert.equal(JSON.parse(await readFile(settingsFile, "utf8")).agentVimMode, false);
     await page.locator("#close-settings").click();
@@ -93,6 +95,8 @@ test("settings dialog exposes its controls and fits narrow viewports", async () 
     assert.equal(await page.getByRole("checkbox", { name: "Relative line numbers", exact: true }).isVisible(), true);
     assert.equal(await page.getByLabel("Editor theme").inputValue(), "system");
     assert.equal(await page.locator("#editor-theme option").count(), 15);
+    assert.equal(await page.locator("#settings-title").evaluate((element) => getComputedStyle(element).fontSize), "16px");
+    assert.equal(await page.locator('#close-settings svg[aria-hidden="true"]').isVisible(), true);
     await page.keyboard.press("Escape");
     await until(async () => assert.equal(await page.locator("#settings").isVisible(), false));
     await page.setViewportSize({ width: 480, height: 720 });
@@ -100,6 +104,9 @@ test("settings dialog exposes its controls and fits narrow viewports", async () 
     await settingsButton.click();
     assert.equal(await page.getByRole("dialog", { name: "Settings", exact: true }).isVisible(), true);
     assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
+    await page.setViewportSize({ width: 320, height: 568 });
+    assert.equal(await page.locator("#settings").evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth), true);
+    assert.equal(await page.getByLabel("Editor theme").isVisible(), true);
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
     assert.deepEqual(errors, []);
 });
@@ -118,6 +125,7 @@ test("relative numbers and theme changes persist without resetting mode, cursor,
     await toggle(true);
     await page.locator("#settings-button").click();
     await page.locator("#editor-theme").selectOption("dracula");
+    await page.locator("#save-settings").click();
     await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
     assert.equal(await page.locator(".cm-editor").evaluate((node) => getComputedStyle(node).backgroundColor), "rgb(40, 42, 54)");
     await page.locator("#close-settings").click();
@@ -147,6 +155,82 @@ test("relative numbers and theme changes persist without resetting mode, cursor,
     assert.deepEqual(errors, []);
 });
 
+test("shortcut changes preview without disk writes and persist only on Save, without flashing the dialog", async () => {
+    const { page, errors, settingsFile } = await settingsPage();
+    await page.locator("#settings-button").click();
+    await until(async () => assert.equal(await page.locator("#settings-status").textContent(), ""));
+    const before = await page.locator("#settings").boundingBox();
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    await page.route("**/api/settings", async (route) => {
+        if (route.request().method() === "POST") await pending;
+        await route.continue();
+    });
+    const control = page.getByRole("checkbox", { name: "Show keyboard shortcut indicators", exact: true });
+    await page.evaluate(() => {
+        window.settingsMutations = [];
+        window.settingsObserver = new MutationObserver((records) =>
+            window.settingsMutations.push(...records.map((record) => record.attributeName)));
+        for (const id of ["relative-line-numbers", "show-keyboard-shortcut-indicators", "editor-theme"]) {
+            window.settingsObserver.observe(document.getElementById(id), { attributes: true, attributeFilter: ["disabled"] });
+        }
+    });
+    try {
+        await control.uncheck();
+        assert.equal(await control.isEnabled(), true);
+        assert.equal(await page.locator("#settings-status").textContent(), "Unsaved changes.");
+        await assert.rejects(readFile(settingsFile, "utf8"), { code: "ENOENT" });
+        assert.equal(await page.locator(".explorer-hint").isVisible(), false);
+        assert.deepEqual(await page.locator("#settings").boundingBox(), before);
+        await page.locator("#save-settings").click();
+        assert.equal(await page.locator("#settings-status").textContent(), "Saving settings...");
+        assert.equal(await control.isEnabled(), true);
+        release();
+        await until(async () => assert.equal(await page.locator("#settings-status").textContent(), "Settings saved."));
+        assert.deepEqual(await page.locator("#settings").boundingBox(), before);
+        assert.deepEqual(await page.evaluate(() => window.settingsMutations), []);
+        assert.equal(JSON.parse(await readFile(settingsFile, "utf8")).showKeyboardShortcutIndicators, false);
+    } finally {
+        release();
+        await page.evaluate(() => window.settingsObserver.disconnect());
+        await page.unroute("**/api/settings");
+    }
+    await page.reload();
+    await page.locator(".cm-editor").waitFor();
+    assert.equal(await page.locator(".explorer-hint").isVisible(), false);
+    assert.deepEqual(errors, []);
+});
+
+test.each(["Discard", "Close settings", "Escape"])("%s reverts previews without modifying persisted settings", async (action) => {
+    const { page, settingsFile, errors } = await settingsPage({
+        preferences: { relativeLineNumbers: true, theme: "dracula", showKeyboardShortcutIndicators: true },
+    });
+    const saved = await readFile(settingsFile, "utf8");
+    const writes = [];
+    page.on("request", (request) => {
+        if (request.url().endsWith("/api/settings") && request.method() === "POST") writes.push(request.postDataJSON());
+    });
+    await page.locator("#settings-button").click();
+    await until(async () => assert.equal(await page.locator("#settings-status").textContent(), ""));
+    await page.locator("#editor-theme").selectOption("nord");
+    await page.locator("#relative-line-numbers").uncheck();
+    await page.locator("#show-keyboard-shortcut-indicators").uncheck();
+    assert.equal(await page.locator(".explorer-hint").isVisible(), false);
+    assert.equal(await readFile(settingsFile, "utf8"), saved);
+    if (action === "Escape") await page.keyboard.press("Escape");
+    else await page.getByRole("button", { name: action, exact: true }).click();
+    assert.equal(await page.locator(".explorer-hint").isVisible(), true);
+    assert.equal(await page.locator("#editor-theme").inputValue(), "dracula");
+    assert.equal(await page.locator("#relative-line-numbers").isChecked(), true);
+    assert.equal(await page.locator(".cm-editor").evaluate((element) => getComputedStyle(element).backgroundColor), "rgb(40, 42, 54)");
+    assert.equal(await readFile(settingsFile, "utf8"), saved);
+    assert.deepEqual(writes, []);
+    await page.reload();
+    await page.locator(".cm-editor").waitFor();
+    assert.equal(await page.locator(".explorer-hint").isVisible(), true);
+    assert.deepEqual(errors, []);
+});
+
 // Six lines with relative numbers enabled: the state left by the preceding scenario in the original suite.
 const sixLines = "# One\nTwo\nThree\nFour\nInserted\nFive";
 
@@ -164,7 +248,7 @@ test("persisted relative numbers apply after reload and to other files", async (
     assert.deepEqual(errors, []);
 });
 
-test("failed settings writes keep the previous preference and document state", async () => {
+test("failed settings saves retain the preview for retry or discard without changing document state", async () => {
     const { page, errors, numbers } = await settingsPage({ content: sixLines, preferences: { relativeLineNumbers: true, theme: "dracula" } });
     await page.locator("#tree .tree-label").getByText("other.txt", { exact: true }).click();
     await until(async () => assert.equal(await page.locator("#filetype").innerText(), "Plain text"));
@@ -177,9 +261,14 @@ test("failed settings writes keep the previous preference and document state", a
     await page.locator("#settings-button").click();
     await until(async () => assert.equal(await page.locator("#relative-line-numbers").isEnabled(), true));
     await page.locator("#relative-line-numbers").uncheck();
+    await page.locator("#save-settings").click();
     await until(async () => assert.match(await page.locator("#settings-status").innerText(), /Settings disk is unavailable/));
-    assert.equal(await page.locator("#relative-line-numbers").isChecked(), true);
+    assert.equal(await page.locator("#relative-line-numbers").isChecked(), false);
+    assert.equal(await page.locator("#save-settings").isEnabled(), true);
     assert.equal(await page.locator("#save-status").isVisible(), false);
+    assert.deepEqual(await numbers(), ["1", "2", "3"]);
+    await page.locator("#discard-settings").click();
+    assert.equal(await page.locator("#relative-line-numbers").isChecked(), true);
     assert.deepEqual(await numbers(), ["2", "1", "3"]);
     await page.locator("#close-settings").click();
     await page.unroute("**/api/settings");
