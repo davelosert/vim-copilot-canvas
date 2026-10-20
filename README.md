@@ -66,7 +66,9 @@ explorer, and inline agent prompts own their own UI and communicate through
 explicit callbacks. Application disposal removes listeners and timers and
 destroys editor views, so components can be mounted independently in tests.
 Reloading temporarily makes the editor read-only to protect the replacement
-from concurrent input. Errors in unrelated UI features no longer mark the
+from concurrent input. When the canvas regains window focus, it restores editor
+focus if the editor was last active and no other control or dialog took focus;
+the Vim mode and selection are preserved. Errors in unrelated UI features no longer mark the
 document as unsaved or conflicted.
 
 Backend transport handles loopback serving and request protection before

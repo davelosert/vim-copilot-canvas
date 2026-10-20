@@ -20,7 +20,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         return element;
     };
     const elements = (names) => Object.fromEntries(Object.entries(names).map(([key, id]) => [key, $(id)]));
-    let disposed = false, interval, controller, shell, review, commands;
+    let disposed = false, interval, controller, shell, review, commands, focusFrame, lastFocused;
     const handlers = new AbortController();
     const listen = (element, type, fn) => element.addEventListener(type, fn, { signal: handlers.signal });
     const report = (error) => { if (!disposed) shell.error(error); };
@@ -51,6 +51,17 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         onSave: save, onCursor: (position) => shell.cursor(position),
         onMode: (mode, subMode) => shell.mode(mode, subMode),
         onLanguage: (name, markdown) => shell.language(name, markdown), onError: report,
+    });
+    listen(doc, "focusin", (event) => { lastFocused = event.target; });
+    listen(win, "focus", () => {
+        win.cancelAnimationFrame(focusFrame);
+        focusFrame = win.requestAnimationFrame(() => {
+            const content = editor.view?.contentDOM;
+            // Host window activation can leave focus on the body instead of the editor.
+            if (!disposed && doc.hasFocus() && content && lastFocused === content &&
+                (doc.activeElement === doc.body || doc.activeElement === content) &&
+                !doc.querySelector("dialog[open]")) editor.focus();
+        });
     });
     const applyShellTheme = () => {
         const { colors, dark, accent, accentContrast } = editor.themePalette();
@@ -198,6 +209,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             if (disposed) return;
             disposed = true;
             win.clearInterval(interval);
+            win.cancelAnimationFrame(focusFrame);
             handlers.abort(); observer.disconnect();
             darkQuery.removeEventListener("change", updateTheme);
             controller.dispose(); commands.dispose(); explorer.dispose(); preferences.dispose();

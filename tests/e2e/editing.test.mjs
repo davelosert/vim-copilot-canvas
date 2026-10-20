@@ -122,6 +122,21 @@ test("edits during an in-flight save persist without stealing focus", async () =
     assert.deepEqual(errors, []);
 });
 
+test("typing continues in insert mode after automatic saving and polling", async () => {
+    const { path, page, errors, keys } = await editorPage();
+    await keys("g", "g", "i");
+    await page.keyboard.type("First ");
+    await until(async () => assert.equal(await page.locator("#save-status").innerText(), "Saved to disk"));
+    await until(async () => assert.match(await readFile(path, "utf8"), /^First /));
+    const polled = page.waitForResponse((response) => response.url().includes("/api/document?"));
+    await polled;
+    assert.equal(await page.evaluate(() => document.activeElement.classList.contains("cm-content")), true);
+    assert.equal(await page.locator("#mode").innerText(), "INSERT");
+    await page.keyboard.type("continued ");
+    await until(async () => assert.match(await readFile(path, "utf8"), /^First continued /));
+    assert.deepEqual(errors, []);
+});
+
 test("failed automatic writes retain the draft and keyboard save retries", async () => {
     const { path, page, errors, keys, state } = await editorPage();
     await page.route("**/api/save", (route) => route.fulfill({

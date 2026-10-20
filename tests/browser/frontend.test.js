@@ -96,6 +96,40 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    it("restores editor focus on returning from the host without resetting insert mode", async () => {
+        const { app } = await fixture();
+        await key("i");
+        await key("before ");
+        await expect.poll(() => app.controller.getState().dirty).toBe(false);
+        const content = app.editor.view.contentDOM;
+        content.blur();
+        expect(document.activeElement).toBe(document.body);
+        window.dispatchEvent(new Event("focus"));
+        await expect.poll(() => document.activeElement).toBe(content);
+        expect($("mode").textContent).toBe("INSERT");
+        await key("after ");
+        await expect.poll(() => app.editor.readText()).toContain("before after ");
+    });
+
+    it("does not reclaim host-return focus from the explorer or a dialog", async () => {
+        const { app } = await fixture();
+        if ($("shell").dataset.sidebar !== "open") await userEvent.click($("toggle-explorer"));
+        $("tree").focus();
+        window.dispatchEvent(new Event("focus"));
+        await new Promise(requestAnimationFrame);
+        expect(document.activeElement).toBe($("tree"));
+        $("tree").blur();
+        window.dispatchEvent(new Event("focus"));
+        await new Promise(requestAnimationFrame);
+        expect(document.activeElement).toBe(document.body);
+
+        app.editor.focus();
+        window.dispatchEvent(new Event("focus"));
+        await userEvent.click($("settings-button"));
+        await new Promise(requestAnimationFrame);
+        expect($("settings").contains(document.activeElement)).toBe(true);
+    });
+
     it("applies the selected editor theme to the full canvas and follows system mode", async () => {
         document.documentElement.dataset.colorMode = "dark";
         await fixture();
