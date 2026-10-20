@@ -35,8 +35,8 @@
     <section class="preview-pane" aria-label="Markdown preview"><div class="pane-label"><span>PREVIEW</span><span>Live rendering</span></div><article id="preview"></article></section>
   </main>
   </div>
-  <section id="review" class="review primer-scope" data-color-mode="light" data-light-theme="light" data-dark-theme="dark" aria-label="Agent review" hidden>
-    <div class="review-bar"><button id="review-toggle" class="review-toggle" type="button" aria-expanded="false" aria-controls="review-list"><span id="review-count">Review</span></button><span class="review-actions"><button id="review-discard" class="btn btn-sm" type="button" title="Discard all pending comments (:AgentDiscard)">Discard</button><button id="review-send" class="btn btn-sm btn-primary" type="button" title="Send all comments in one message (Ctrl+Shift+Enter or :AgentSend)">Send review</button></span></div>
+  <section id="review" class="review primer-scope" data-color-mode="light" data-light-theme="light" data-dark-theme="dark" aria-label="Request batch" hidden>
+    <div class="review-bar"><button id="review-toggle" class="review-toggle" type="button" aria-expanded="false" aria-controls="review-list"><span id="review-count">Pending requests</span></button><span class="review-actions"><button id="review-discard" class="btn btn-sm" type="button" title="Discard all pending requests (:AgentDiscard)">Discard batch</button><button id="review-send" class="btn btn-sm btn-primary" type="button" aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter" title="Send all requests in one message (Ctrl/Cmd+Shift+Enter or :AgentSend)"><span>Send batch</span><kbd aria-hidden="true">Ctrl/Cmd+Shift+Enter</kbd></button></span></div>
     <ol id="review-list" class="review-list" hidden></ol>
   </section>
   <footer class="statusbar"><div><span id="mode" class="mode">NORMAL</span><span id="save-status">Loading</span><span id="agent-status" role="status" aria-live="polite"></span></div><div><span id="words">0 words</span><span id="cursor">Ln 1, Col 1</span><span id="filetype" class="filetype">Markdown</span></div></footer>
@@ -48,6 +48,8 @@
     <p id="editor-theme-description">Choose a CodeMirror-compatible syntax and editor theme. GitHub (system) follows the host's colour mode.</p>
     <label class="setting"><input id="relative-line-numbers" type="checkbox" aria-describedby="relative-line-numbers-description"> Relative line numbers</label>
     <p id="relative-line-numbers-description">Show distances from the cursor line. The current line keeps its absolute number. Applies to all files and is saved across sessions.</p>
+    <label class="setting"><input id="agent-vim-mode" type="checkbox" aria-describedby="agent-vim-mode-description"> Vim mode in Agent panel</label>
+    <p id="agent-vim-mode-description">Use Vim editing in agent prompts and batch comments. When disabled, a single Esc closes the panel. The main editor always uses Vim.</p>
     <p id="settings-status" role="status" aria-live="polite"></p>
   </dialog>
   <dialog id="help">
@@ -63,9 +65,9 @@
     </div>
     <span class="eyebrow">SEND TO AGENT</span>
     <div class="shortcut-grid">
-      <kbd>Ctrl+i</kbd><span>Prompt the agent about the cursor line or selection</span><kbd>Enter</kbd><span>Send now (adds to the review while one is open)</span>
-      <kbd>Ctrl+Enter</kbd><span>Add the prompt to the review</span><kbd>Shift+Enter</kbd><span>New line in the prompt</span>
-      <kbd>Ctrl+Shift+Enter / :AgentSend</kbd><span>Send the whole review</span><kbd>Esc Esc / :AgentDiscard</kbd><span>Cancel the prompt / discard the review</span>
+      <kbd>Ctrl+i</kbd><span>Prompt the agent about the cursor line or selection</span><kbd>Enter</kbd><span>Send this prompt now, independently of the pending batch</span>
+      <kbd>Ctrl+Enter</kbd><span>Add the prompt to the batch</span><kbd>Shift+Enter</kbd><span>New line in the prompt</span>
+      <kbd>Ctrl+Shift+Enter / :AgentSend</kbd><span>Send the whole batch</span><kbd>Esc Esc / :AgentDiscard</kbd><span>Cancel the prompt / discard the batch</span>
     </div>
     <span class="eyebrow">FILE EXPLORER</span>
     <div class="shortcut-grid">

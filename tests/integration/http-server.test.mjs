@@ -185,7 +185,7 @@ test("failed review sends retain comments; successful sends compose one message 
     const { messages } = session;
     assert.equal(messages.length, 1);
     assert.equal(messages[0].mode, "immediate");
-    assert.match(messages[0].prompt, /2 review comments/);
+    assert.match(messages[0].prompt, /2 batched requests/);
     assert.match(messages[0].prompt, /1\. note\.md:2-3 \(.*note\.md\)\n   Fix wording/);
     assert.match(messages[0].prompt, /2\. other\.md:1 \(.*other\.md\)\n   Shorten/);
     assert.deepEqual(messages[0].attachments.map(({ displayName, text }) => ({ displayName, text })), [

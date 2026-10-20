@@ -110,6 +110,26 @@ test("review send removes comments only after delivery succeeds", async ({ onTes
     await expect(send({})).rejects.toMatchObject({ code: "review_empty" });
 });
 
+test("review edits persist without changing identity or frozen attachments and reject invalid or missing comments", async ({ onTestFinished }) => {
+    const messages = [];
+    const { routes, reviews, workspace } = await fixture(onTestFinished, async (message) => { messages.push(message); return "edited"; });
+    const added = await routes.post.get("/api/review/add")({ path: "a.md", prompt: "Original", selections: [selection()] });
+    const original = (await reviews.list(workspace.root))[0];
+    const edit = routes.post.get("/api/review/edit");
+    await expect(edit({ prompt: "Missing id" })).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(edit({ id: original.id, prompt: " " })).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(edit({ id: original.id, prompt: "x".repeat(32001) })).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(edit({ id: "missing", prompt: "Changed" })).rejects.toMatchObject({ code: "review_not_found", status: 404 });
+    const edited = await edit({ id: original.id, prompt: "  Updated\ncomment  " });
+    expect(edited.items).toEqual([{ ...added.items[0], prompt: "Updated\ncomment" }]);
+    const restored = new ReviewStore(reviews.directory);
+    expect(await restored.list(workspace.root)).toEqual([{ ...original, prompt: "Updated\ncomment" }]);
+    await routes.post.get("/api/review/send")({});
+    expect(messages[0].prompt).toContain("Updated\n   comment");
+    expect(messages[0].attachments).toEqual(original.attachments);
+    await expect(edit({ id: original.id, prompt: "Too late" })).rejects.toMatchObject({ code: "review_not_found" });
+});
+
 test("HTTP transport keeps guards, assets, limits and error codes", async ({ onTestFinished }) => {
     const { store, workspace, document, base } = await fixture(onTestFinished);
     const entry = await startServer({ store, workspace, document, root: installation, settings: new SettingsStore(join(base, "s.json")) });

@@ -61,6 +61,10 @@ function fakeApi() {
             items.push({ ...input, id: `item-${items.length}`, label: `${input.path.split("/").pop()}:1`, lines: input.lines ?? [{ start: 1, end: 1 }] });
             return { items: [...items] };
         }
+        if (path === "review/edit") {
+            items = items.map((item) => item.id === input.id ? { ...item, prompt: input.prompt } : item);
+            return { items: [...items] };
+        }
         if (path === "review/remove") items = items.filter((item) => !input.ids.includes(item.id));
         else if (path === "review/send" || path === "review/clear") items = [];
         else if (path === "reload") {
@@ -218,6 +222,44 @@ describe("mounted frontend with real CodeMirror", () => {
         expect(prompt.querySelector(".agent-hint kbd").textContent).toMatch(/⇧⏎|Shift\+Enter/);
     });
 
+    it("switches Agent Vim mode live without losing text and closes standard prompts with one Escape", async () => {
+        const { app, api } = await fixture();
+        app.editor.focus();
+        await key("{Control>}i{/Control}Keep this");
+        await userEvent.click($("settings-button"));
+        await expect.poll(() => $("settings-status").textContent).toBe("");
+        expect($("agent-vim-mode").checked).toBe(true);
+        await userEvent.click($("agent-vim-mode"));
+        await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        await userEvent.click($("close-settings"));
+        expect(document.querySelector(".agent-header .mode").hidden).toBe(true);
+        expect(document.querySelector(".agent-input .cm-content").textContent).toBe("Keep this");
+        expect(document.querySelector(".agent-cancel kbd").textContent).toBe("Esc");
+        await userEvent.click(document.querySelector(".agent-input .cm-content"));
+        await key("{Escape}");
+        expect(document.querySelectorAll(".agent-prompt")).toHaveLength(0);
+        expect(app.editor.view.scrollDOM.classList.contains("cm-vimMode")).toBe(true);
+        await key("{Control>}i{/Control}Standard text{Shift>}{Enter}{/Shift}Second line");
+        expect(document.querySelector(".agent-input .cm-content").textContent).toContain("Standard text");
+        await key("{Meta>}{Enter}{/Meta}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
+        expect((await api("review")).items[0].prompt).toBe("Standard text\nSecond line");
+        await userEvent.click(document.querySelector(".review-marker"));
+        expect(document.querySelector(".agent-input .cm-content").textContent).toContain("Standard text");
+        await userEvent.click($("settings-button"));
+        await expect.poll(() => $("settings-status").textContent).toBe("");
+        await userEvent.click($("agent-vim-mode"));
+        await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        await userEvent.click($("close-settings"));
+        expect(document.querySelector(".agent-header .mode").hidden).toBe(false);
+        expect(document.querySelector(".agent-input .cm-content").textContent).toContain("Standard text");
+        await userEvent.click(document.querySelector(".agent-input .cm-content"));
+        await key("{Escape}");
+        expect(document.querySelectorAll(".agent-prompt")).toHaveLength(1);
+        await key("{Escape}");
+        expect(document.querySelectorAll(".agent-prompt")).toHaveLength(0);
+    });
+
     it("uses frozen selection context and prompt-local keyboard priority, with failed-send retry", async () => {
         const { app, api } = await fixture();
         app.editor.view.dispatch({ selection: { anchor: 9, head: 14 } });
@@ -257,6 +299,130 @@ describe("mounted frontend with real CodeMirror", () => {
         await key("{Control>}{Shift>}{Enter}{/Shift}{/Control}");
         await expect.poll(() => $("review").hidden).toBe(true);
         expect(api.mock.calls.filter(([path]) => path === "review/send")).toHaveLength(1);
+    });
+
+    it("opens separate left-hand icons on the same line, toggles, edits, maps and deletes comments", async () => {
+        const { app, api } = await fixture();
+        for (const prompt of ["First comment", "Second comment"]) {
+            await api("review/add", { path: "/work/a.md", prompt, selections: [], lines: [{ start: 3, end: 4 }] });
+        }
+        await app.controller.poll();
+        const icons = () => [...document.querySelectorAll(".review-marker")];
+        expect(icons()).toHaveLength(2);
+        const contentBounds = app.editor.view.contentDOM.getBoundingClientRect();
+        expect(icons()[0].getBoundingClientRect().right).toBeLessThanOrEqual(contentBounds.left);
+        expect(icons()[0].getBoundingClientRect().left).toBeGreaterThanOrEqual(app.editor.view.scrollDOM.getBoundingClientRect().left);
+        const lastLine = [...app.editor.view.contentDOM.querySelectorAll(":scope > .cm-line")].at(-1);
+        await expect.poll(() => Math.abs(icons()[0].getBoundingClientRect().top - lastLine.getBoundingClientRect().top)).toBeLessThan(4);
+        await userEvent.click(icons()[0]);
+        expect(document.querySelector(".agent-input .cm-content").textContent).toBe("First comment");
+        await key("{Escape}ccCancelled");
+        await userEvent.click(icons()[0]);
+        expect(document.querySelectorAll(".agent-prompt")).toHaveLength(0);
+        expect((await api("review")).items[0].prompt).toBe("First comment");
+        await userEvent.click(icons()[0]);
+        expect(document.querySelector(".agent-input .cm-content").textContent).toBe("First comment");
+        await userEvent.click(icons()[0]);
+        expect(document.querySelectorAll(".agent-prompt")).toHaveLength(0);
+
+        app.editor.view.dispatch({ changes: { from: 0, insert: "new line\n" } });
+        await app.controller.save();
+        await app.controller.poll();
+        const mappedLast = [...app.editor.view.contentDOM.querySelectorAll(":scope > .cm-line")].at(-1);
+        await expect.poll(() => Math.abs(icons()[1].getBoundingClientRect().top - mappedLast.getBoundingClientRect().top)).toBeLessThan(4);
+        await userEvent.click(icons()[1]);
+        expect(document.querySelector(".agent-input .cm-content").textContent).toBe("Second comment");
+        await key("{Escape}ccUpdated comment{Enter}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
+        expect((await api("review")).items).toHaveLength(2);
+        expect((await api("review")).items[1].prompt).toBe("Updated comment");
+        expect(icons()[1].title).toContain("Updated comment");
+        expect($("review-list").textContent).toContain("Updated comment");
+        expect(api.mock.calls.filter(([path]) => path === "review/edit")).toHaveLength(1);
+        expect(app.editor.readText()).toBe("new line\n# Title\n\nfirst line\nsecond line");
+        await userEvent.click(icons()[1]);
+        await userEvent.click([...document.querySelectorAll(".agent-actions button")].find((button) => button.textContent === "Delete comment"));
+        await expect.poll(() => icons().length).toBe(1);
+        expect((await api("review")).items[0].prompt).toBe("First comment");
+        await app.controller.open("/work/b.js");
+        expect(icons()).toHaveLength(0);
+        await userEvent.click($("review-toggle"));
+        await userEvent.click(document.querySelector(".review-edit"));
+        await expect.poll(() => document.querySelector(".agent-input .cm-content")?.textContent).toBe("First comment");
+        expect(app.controller.getState().current.path).toBe("/work/a.md");
+    });
+
+    it("keeps Enter and modifier Enter consistent during a review and offers send-all as a third action", async () => {
+        const { app, api } = await fixture();
+        await api("review/add", { path: "/work/a.md", prompt: "Pending", selections: [] });
+        await app.controller.poll();
+        const open = async () => {
+            app.editor.focus();
+            await key("{Control>}i{/Control}");
+        };
+        await open();
+        const actions = [...document.querySelectorAll(".agent-actions button")];
+        expect(actions.map((button) => button.querySelector("span")?.textContent)).toEqual(["Send to Agent", "Add to batch", "Send batch (1)", "Cancel"]);
+        expect($("review").getAttribute("aria-label")).toBe("Request batch");
+        expect($("review-count").textContent).toBe("1 pending request");
+        expect($("review-discard").textContent).toBe("Discard batch");
+        expect(getComputedStyle($("review-send").querySelector("kbd")).display).not.toBe("none");
+        for (const button of actions.slice(0, 3)) {
+            expect(getComputedStyle(button.querySelector("kbd")).display).not.toBe("none");
+        }
+        expect(actions[0].getAttribute("aria-keyshortcuts")).toBe("Enter");
+        expect(actions[1].getAttribute("aria-keyshortcuts")).toBe("Control+Enter Meta+Enter");
+        await key("Immediate{Enter}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
+        expect(api.mock.calls.filter(([path]) => path === "agent")).toMatchObject([["agent", { prompt: "Immediate" }]]);
+        expect((await api("review")).items).toHaveLength(1);
+        await open();
+        await key("Grouped{Meta>}{Enter}{/Meta}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
+        expect((await api("review")).items).toHaveLength(2);
+        expect($("review-count").textContent).toBe("2 pending requests");
+        await open();
+        await key("Final{Meta>}{Shift>}{Enter}{/Shift}{/Meta}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
+        expect(api.mock.calls.filter(([path]) => path === "review/send")).toHaveLength(1);
+        expect(api.mock.calls.filter(([path]) => path === "review/add").at(-1)[1].prompt).toBe("Final");
+        expect((await api("review")).items).toHaveLength(0);
+    });
+
+    it("expands list comments across files and switches between comments in the same file", async () => {
+        const { app, api } = await fixture();
+        await api("review/add", { path: "/work/a.md", prompt: "First", selections: [], lines: [{ start: 1, end: 1 }] });
+        await api("review/add", { path: "/work/a.md", prompt: "Multiline", selections: [], lines: [{ start: 3, end: 4 }] });
+        await app.controller.poll();
+        await app.controller.open("/work/b.js");
+        await userEvent.click($("review-toggle"));
+        const rows = () => [...document.querySelectorAll(".review-item")];
+        await userEvent.click(rows()[1]);
+        await expect.poll(() => document.querySelector(".agent-input .cm-content")?.textContent).toBe("Multiline");
+        expect(app.controller.getState().current.path).toBe("/work/a.md");
+        expect(app.editor.view.state.doc.lineAt(app.editor.view.state.selection.main.head).number).toBe(4);
+        await userEvent.click(rows()[0]);
+        await expect.poll(() => document.querySelector(".agent-input .cm-content")?.textContent).toBe("First");
+        expect(app.editor.view.state.doc.lineAt(app.editor.view.state.selection.main.head).number).toBe(1);
+        await userEvent.click(rows()[0]);
+        expect(document.querySelectorAll(".agent-prompt")).toHaveLength(1);
+    });
+
+    it("keeps failed comment edits open for retry without adding or sending comments", async () => {
+        const { app, api } = await fixture();
+        await api("review/add", { path: "/work/a.md", prompt: "Original", selections: [] });
+        await app.controller.poll();
+        const original = api.getMockImplementation();
+        api.mockImplementation((path, input) => path === "review/edit" ? Promise.reject(new Error("Save unavailable")) : original(path, input));
+        await userEvent.click(document.querySelector(".review-marker"));
+        await key("{Escape}ccRetry edit{Enter}");
+        await expect.poll(() => document.querySelector(".agent-status")?.textContent).toContain("Save unavailable");
+        expect(document.querySelector(".agent-input .cm-content").textContent).toBe("Retry edit");
+        expect(api.mock.calls.filter(([path]) => path === "review/send" || path === "agent")).toHaveLength(0);
+        api.mockImplementation(original);
+        await key("{Enter}");
+        await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
+        expect((await api("review")).items[0].prompt).toBe("Retry edit");
     });
 
     it("does not let feature errors change document conflict ownership", async () => {

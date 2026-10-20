@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicWrite } from "./files.mjs";
+import { EditorError } from "./errors.mjs";
 
 const MAX_ITEMS = 200;
 
@@ -51,7 +52,7 @@ export class ReviewStore {
     add(root, item) {
         return this.update(root, (items) => {
             if (items.length >= MAX_ITEMS) {
-                const error = new Error(`A review can hold at most ${MAX_ITEMS} comments. Send or discard it first.`);
+                const error = new Error(`A batch can hold at most ${MAX_ITEMS} requests. Send or discard it first.`);
                 Object.assign(error, { code: "review_full", status: 409 });
                 throw error;
             }
@@ -62,6 +63,15 @@ export class ReviewStore {
     remove(root, ids) {
         const remove = new Set(ids);
         return this.update(root, (items) => items.filter((item) => !remove.has(item.id)));
+    }
+
+    edit(root, id, prompt) {
+        return this.update(root, (items) => {
+            const index = items.findIndex((item) => item.id === id);
+            if (index < 0) throw new EditorError("review_not_found", "This batch comment no longer exists.", 404);
+            items[index] = { ...items[index], prompt };
+            return items;
+        });
     }
 }
 
@@ -80,6 +90,6 @@ export function composeReview(items) {
         const body = item.prompt.split("\n").map((line) => `   ${line}`).join("\n");
         return `${index + 1}. ${item.label} (${item.path})\n${body}`;
     });
-    return `Please address these ${items.length} review comment${items.length === 1 ? "" : "s"}. ` +
+    return `Please address ${items.length === 1 ? "this" : "these"} ${items.length} batched request${items.length === 1 ? "" : "s"}. ` +
         `Each one refers to the attached file selection with the same label.\n\n${comments.join("\n\n")}`;
 }

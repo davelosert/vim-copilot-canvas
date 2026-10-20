@@ -10,6 +10,21 @@ to your workspace, with:
 - A Vim-tree-style file explorer for quickly navigating project files.
 - Settings and theming, including relative line numbers.
 
+Collect requests in a **batch** to send them to the agent together; this is not a GitHub pull request review.
+Pending batch comments have clickable comment icons in the editor's left-hand gutter.
+Click an icon (or **Edit** in the batch list) to reopen the comment inline, then choose **Save changes**, **Delete comment**, or **Cancel**.
+Clicking a batch list item opens its file, jumps to its location, and expands the comment inline.
+Each comment has its own icon, including when several comments refer to the same line.
+For multi-line selections, the icon appears on the last selected line.
+Click the same icon again to close the inline editor without saving changes.
+Edits retain the original selection context; saved comments survive reloads until the batch is sent or discarded.
+New prompts always use **Enter** to send immediately and **Cmd/Ctrl+Enter** to **Add to batch**.
+While a batch is pending, a third **Send batch** action (**Cmd/Ctrl+Shift+Enter**) sends the entire batch, including the current prompt if nonempty.
+The batch bar shows the number of pending requests and offers **Send batch** and **Discard batch**; `:AgentSend` and `:AgentDiscard` remain available.
+Settings includes **Vim mode in Agent panel**, enabled by default and saved across sessions.
+Disable it to use standard editing in prompts and batch comments, with a single **Esc** to close; the main editor stays in Vim mode.
+Changing this setting applies to open panels without clearing their text.
+
 ## Installation
 
 Install the plugin from this GitHub repository in the Copilot App:
@@ -52,7 +67,7 @@ Ask Copilot to open that dev canvas to run the backend and serve the assets from
 Run `npm run build` after frontend changes and ask Copilot to reload extensions (`extensions_reload`) after backend or provider changes, or when first adding the dev registration to an existing session.
 Then open **Vim Copilot Canvas (Dev)**; without explicit file or root input it uses the session's working directory.
 
-Dev drafts, pending reviews, and the fallback welcome document live in a `vim-canvas-dev/` directory under session storage, outside the checkout.
+Dev drafts, pending batches, and the fallback welcome document live in a `vim-canvas-dev/` directory under session storage, outside the checkout.
 They survive extension reloads within that session but are isolated from other sessions and the installed canvas.
 Explicit file saves still update the files you are editing; global editor settings remain shared.
 
@@ -125,7 +140,7 @@ tests/                 unit, integration, browser, e2e, and fixture helpers
 ```
 
 The frontend uses plain ES modules and vanilla DOM. `app.js` composes the
-features; `main.js` is the production entry. Inline Agent prompts and review
+features; `main.js` is the production entry. Inline Agent prompts and batch
 actions use [Primer CSS](https://primer.style/css), not React. `primer.css`
 bundles only Primer's primitives, light/dark tokens, and buttons; no global
 reset is included. Apply `primer-scope` and the matching colour-mode attributes
@@ -135,7 +150,7 @@ must not overwrite the host's colour-mode attributes.
 The generated stylesheet is served locally as `/primer.css`, with no CDN
 or runtime dependency installation.
 
-The document controller owns the current snapshot, edit generations, serialized saves, file switching, reloads, polling, and draft conflicts. It silently reloads the open document when its disk content changes, replacing any unsynced edits. It has no DOM or CodeMirror dependency. The editor adapter owns CodeMirror state and configuration; preview, settings, reviews, explorer, and inline agent prompts own their own UI and communicate through explicit callbacks. Application disposal removes listeners and timers and destroys editor views, so components can be mounted independently in tests.
+The document controller owns the current snapshot, edit generations, serialized saves, file switching, reloads, polling, and draft conflicts. It silently reloads the open document when its disk content changes, replacing any unsynced edits. It has no DOM or CodeMirror dependency. The editor adapter owns CodeMirror state and configuration; preview, settings, batches, explorer, and inline agent prompts own their own UI and communicate through explicit callbacks. Application disposal removes listeners and timers and destroys editor views, so components can be mounted independently in tests.
 Reloading temporarily makes the editor read-only to protect the replacement
 from concurrent input. Errors in unrelated UI features no longer mark the
 document as unsaved or conflicted.
@@ -146,6 +161,7 @@ locking and write semantics. Shared modules must not import browser or Node-only
 APIs. Keep the required `extension.mjs` at the installation root: source
 relocation does not change draft/review artifact locations or global settings.
 The project dev entry overrides draft/review storage with its session directory while reusing the same provider.
+Batch internals retain the existing `review` API paths, storage directories, and DOM hooks for compatibility with saved requests.
 
 Use unit tests for deterministic save/conflict races, integration tests for
 filesystem and HTTP behavior, and Browser Mode for real keyboard, focus, DOM,

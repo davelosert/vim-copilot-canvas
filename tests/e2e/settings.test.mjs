@@ -42,6 +42,30 @@ async function settingsPage({ content = source, preferences } = {}) {
     return { temporary, path, settingsFile, start, page, errors, numbers, toggle, settingsButton };
 }
 
+test("Agent panel Vim preference survives reload and standard mode closes with a single Escape", async () => {
+    const { page, errors, settingsFile, settingsButton } = await settingsPage();
+    await settingsButton.click();
+    const checkbox = page.getByRole("checkbox", { name: "Vim mode in Agent panel", exact: true });
+    await until(async () => assert.equal(await checkbox.isEnabled(), true));
+    assert.equal(await checkbox.isChecked(), true);
+    await checkbox.uncheck();
+    await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
+    assert.equal(JSON.parse(await readFile(settingsFile, "utf8")).agentVimMode, false);
+    await page.locator("#close-settings").click();
+    await page.reload();
+    const editor = page.locator("#editor > .cm-editor > .cm-scroller > .cm-content");
+    await editor.focus();
+    await page.keyboard.press("Control+i");
+    const prompt = page.getByRole("textbox", { name: "Agent prompt" });
+    await prompt.waitFor();
+    await page.keyboard.type("Standard editing");
+    assert.equal(await page.locator(".agent-header .mode").isVisible(), false);
+    await page.keyboard.press("Escape");
+    assert.equal(await prompt.count(), 0);
+    assert.equal(await editor.evaluate((element) => element === document.activeElement), true);
+    assert.deepEqual(errors, []);
+});
+
 test("settings dialog exposes its controls and fits narrow viewports", async () => {
     const { page, errors, settingsButton } = await settingsPage();
     assert.equal(await settingsButton.locator('svg[aria-hidden="true"]').isVisible(), true);

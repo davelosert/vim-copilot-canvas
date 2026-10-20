@@ -68,16 +68,23 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
             });
             return review();
         })],
+        ["/api/review/edit", objectInput(async (input) => {
+            if (typeof input.id !== "string" || !input.id) {
+                throw new EditorError("invalid_input", "A batch comment id is required.", 400);
+            }
+            await reviews.edit(workspace.root, input.id, validPrompt(input.prompt));
+            return review();
+        })],
         ["/api/review/remove", objectInput(async (input) => {
             if (!Array.isArray(input.ids) || !input.ids.every((id) => typeof id === "string")) {
-                throw new EditorError("invalid_input", "Review comment ids are required.", 400);
+                throw new EditorError("invalid_input", "Batch comment ids are required.", 400);
             }
             await reviews.remove(workspace.root, input.ids);
             return review();
         })],
         ["/api/review/send", objectInput(async () => {
             const items = await reviews.list(workspace.root);
-            if (!items.length) throw new EditorError("review_empty", "The review has no comments.", 400);
+            if (!items.length) throw new EditorError("review_empty", "The batch has no requests.", 400);
             const messageId = await deliver({
                 prompt: composeReview(items),
                 attachments: items.flatMap((item) => item.attachments),
