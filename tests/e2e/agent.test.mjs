@@ -185,7 +185,7 @@ test("agent prompt: cancel preserves Vim mode and failed sends retain prompt for
     await keys("Enter");
     await until(async () => assert.match(await page.locator(".agent-prompt [role=status]").innerText(), /Session disconnected/));
     assert.equal(await promptText(), "Retry me");
-    assert.equal(await page.locator("#save-status").innerText(), "Saved to disk");
+    assert.equal(await page.locator("#save-status").isVisible(), false);
     session.fail = false;
     await keys("Enter");
     await until(async () => assert.equal(await prompt.count(), 0));

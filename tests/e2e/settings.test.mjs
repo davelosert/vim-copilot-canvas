@@ -179,7 +179,7 @@ test("failed settings writes keep the previous preference and document state", a
     await page.locator("#relative-line-numbers").uncheck();
     await until(async () => assert.match(await page.locator("#settings-status").innerText(), /Settings disk is unavailable/));
     assert.equal(await page.locator("#relative-line-numbers").isChecked(), true);
-    assert.equal(await page.locator("#save-status").innerText(), "Saved to disk");
+    assert.equal(await page.locator("#save-status").isVisible(), false);
     assert.deepEqual(await numbers(), ["2", "1", "3"]);
     await page.locator("#close-settings").click();
     await page.unroute("**/api/settings");
