@@ -53,12 +53,22 @@ src/backend/           HTTP transport, routes, delivery, and persistent stores
 src/shared/            Browser/Node-safe theme catalog
 public/                HTML shell and stylesheet
 resources/             Bundled welcome document
-assets/                Generated editor bundle and lazy language chunks
+assets/                Generated editor bundle, Primer CSS, and lazy language chunks
 tests/                 unit, integration, browser, e2e, and fixture helpers
 ```
 
 The frontend uses plain ES modules and vanilla DOM. `app.js` composes the
-features; `main.js` is the production entry. The document controller owns the
+features; `main.js` is the production entry. Inline Agent prompts and review
+actions use [Primer CSS](https://primer.style/css), not React. `primer.css`
+bundles only Primer's primitives, light/dark tokens, and buttons; no global
+reset is included. Apply `primer-scope` and the matching colour-mode attributes
+to new Primer surfaces. The scope bridges neutral colours to the selected
+editor palette while keeping Primer's primary action colours. Theme updates
+must not overwrite the host's colour-mode attributes.
+The generated stylesheet is served locally as `/primer.css`, with no CDN
+or runtime dependency installation.
+
+The document controller owns the
 current snapshot, edit generations, serialized saves, file switching, reloads,
 polling, and conflicts. It has no DOM or CodeMirror dependency. The editor
 adapter owns CodeMirror state and configuration; preview, settings, reviews,

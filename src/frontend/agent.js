@@ -55,7 +55,7 @@ function button(text, title, onClick, { shortcut, className } = {}) {
     const element = document.createElement("button");
     element.type = "button";
     element.title = title;
-    if (className) element.className = className;
+    element.className = `btn btn-sm${className ? ` ${className}` : ""}`;
     const label = document.createElement("span");
     label.textContent = text;
     element.append(label);
@@ -71,7 +71,7 @@ function button(text, title, onClick, { shortcut, className } = {}) {
 
 export function createAgent({ getPath, reviewCount, send, addToReview, sendReview, onDone, extensions = () => [] }) {
     let disposed = false;
-    const prompts = new Set();
+    const prompts = new Map();
     class Prompt extends WidgetType {
         constructor(context) {
             super();
@@ -80,19 +80,28 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
         toDOM(view) {
             const reviewing = reviewCount() > 0;
             const form = document.createElement("div");
-            form.className = "agent-prompt";
+            form.className = "agent-prompt primer-scope";
+            form.dataset.colorMode = document.documentElement.dataset.canvasTheme ?? "light";
+            form.dataset.lightTheme = "light";
+            form.dataset.darkTheme = "dark";
             form.setAttribute("role", "group");
             form.setAttribute("aria-label", "Send to Agent");
             const header = document.createElement("div");
             header.className = "agent-header";
             const title = document.createElement("span");
-            title.textContent = `Agent · ${this.context.label}`;
+            title.className = "agent-title";
+            title.append("Agent");
+            const context = document.createElement("span");
+            context.className = "agent-context";
+            context.textContent = this.context.label;
+            title.append(context);
             const mode = document.createElement("span");
             mode.className = "mode";
             header.append(title, mode);
             const host = document.createElement("div");
             host.className = "agent-input";
             const readOnly = new Compartment();
+            const theme = new Compartment();
             const inner = new EditorView({
                 parent: host,
                 state: EditorState.create({
@@ -100,11 +109,11 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
                         vim(), minimalSetup, EditorView.lineWrapping, readOnly.of(EditorState.readOnly.of(false)),
                         placeholder(reviewing ? "Add a review comment for the agent..." : "Describe a change or ask a question..."),
                         EditorView.contentAttributes.of({ "aria-label": "Agent prompt", spellcheck: "true" }),
-                        ...extensions(),
+                        theme.of(extensions()),
                     ],
                 }),
             });
-            prompts.add(inner);
+            prompts.set(inner, theme);
             let destroyed = false;
             const cm = getCM(inner);
             let currentMode = "normal";
@@ -168,11 +177,11 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
             hint.append(kbd(keys.newline), " new line");
             if (reviewing) {
                 actions.append(
-                    button("Add to review", `${keys.send} or ${keys.mod}`, () => submit("review"), { shortcut: "send", className: "primary" }),
+                    button("Add to review", `${keys.send} or ${keys.mod}`, () => submit("review"), { shortcut: "send", className: "btn-primary" }),
                     button(`Send review (${reviewCount()})`, `${keys.modShift}: send all review comments, including this one`, () => submit("send-review"), { shortcut: "modShift" }));
             } else {
                 actions.append(
-                    button("Send to Agent", keys.send, () => submit("send"), { shortcut: "send", className: "primary" }),
+                    button("Send to Agent", keys.send, () => submit("send"), { shortcut: "send", className: "btn-primary" }),
                     button("Add to review", `${keys.mod}: collect comments and send them together`, () => submit("review"), { shortcut: "mod" }));
             }
             const cancel = button("Cancel", `${keys.cancel} in Normal mode`, () => { if (!sending) close(); }, { className: "agent-cancel" });
@@ -213,6 +222,12 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
 
     return {
         extensions: [promptField, markerField],
+        updateTheme() {
+            if (disposed) return;
+            for (const [inner, theme] of prompts) {
+                inner.dispatch({ effects: theme.reconfigure(extensions()) });
+            }
+        },
         isOpen: (view) => view.state.field(promptField).size > 0,
         open(view) {
             if (disposed) return;
@@ -235,7 +250,7 @@ export function createAgent({ getPath, reviewCount, send, addToReview, sendRevie
         },
         dispose() {
             disposed = true;
-            for (const inner of prompts) inner.destroy();
+            for (const inner of prompts.keys()) inner.destroy();
             prompts.clear();
         },
     };

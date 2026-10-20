@@ -81,6 +81,58 @@ test("agent prompt: cursor line, inline placement, newline, no duplicates and fo
     await finish();
 });
 
+test("Primer prompt and review controls follow live themes without changing the host colour mode", async () => {
+    const { page, open, prompt, keys, finish } = await agentPage();
+    await page.evaluate(() => { document.documentElement.dataset.colorMode = "light"; });
+    await open();
+    await page.keyboard.type("Review with Primer");
+    const scope = page.locator(".agent-prompt");
+    const primary = scope.locator(".btn-primary");
+    for (const mode of ["light", "dark"]) {
+        await page.evaluate((value) => { document.documentElement.dataset.colorMode = value; }, mode);
+        await until(async () => assert.equal(await scope.getAttribute("data-color-mode"), mode));
+        assert.equal(await page.locator("#review").getAttribute("data-color-mode"), mode);
+        const contrast = await primary.evaluate((node) => {
+            const luminance = (color) => {
+                const channels = color.match(/[\d.]+/g).slice(0, 3).map((value) => {
+                    const channel = Number(value) / 255;
+                    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+                });
+                return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+            };
+            const style = getComputedStyle(node);
+            const values = [luminance(style.color), luminance(style.backgroundColor)].sort((a, b) => b - a);
+            return (values[0] + 0.05) / (values[1] + 0.05);
+        });
+        assert.ok(contrast >= 4.5, `${mode} primary contrast: ${contrast}`);
+        assert.equal(await scope.locator(".agent-input .cm-editor").evaluate((node) =>
+            getComputedStyle(node).backgroundColor === getComputedStyle(document.querySelector("#editor > .cm-editor")).backgroundColor), true);
+    }
+    await page.evaluate(() => { document.documentElement.dataset.colorMode = "light"; });
+    await page.locator("#settings-button").click();
+    await page.locator("#editor-theme").selectOption("dracula");
+    await page.locator("#close-settings").click();
+    await until(async () => assert.equal(await scope.getAttribute("data-color-mode"), "dark"));
+    assert.equal(await page.locator("html").getAttribute("data-color-mode"), "light");
+    await until(async () => assert.equal(await scope.getByRole("button", { name: "Add to review", exact: true }).evaluate((node) =>
+        getComputedStyle(node).backgroundColor === getComputedStyle(document.querySelector(".toolbar")).backgroundColor), true));
+    assert.equal(await scope.locator(".agent-input .cm-editor").evaluate((node) =>
+        getComputedStyle(node).backgroundColor === getComputedStyle(document.querySelector("#editor > .cm-editor")).backgroundColor), true);
+    assert.equal(await prompt.innerText(), "Review with Primer");
+    assert.equal(await scope.locator(".mode").innerText(), "INSERT");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator("#toggle-explorer").click();
+    await prompt.click();
+    assert.equal(await scope.evaluate((node) => {
+        const bounds = node.getBoundingClientRect();
+        return bounds.left >= 0 && bounds.right <= innerWidth && node.scrollWidth <= node.clientWidth;
+    }), true);
+    await keys("Control+Enter");
+    await until(async () => assert.equal(await prompt.count(), 0));
+    assert.equal(await page.locator("#review-send.btn-primary").isVisible(), true);
+    await finish();
+});
+
 test("agent prompt: forward and backward Visual line selections preserve CodeMirror's range", async () => {
     const { messages, keys, open, send, finish } = await agentPage();
     for (const sequence of [["g", "g", "V", "j"], ["Escape", "g", "g", "j", "V", "k"]]) {
