@@ -1,8 +1,13 @@
 {
   "name": "vim-copilot-canvas",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
+    "changeset": "changeset",
+    "version:release": "changeset version && node scripts/release-metadata.mjs sync && npm install --package-lock-only --ignore-scripts",
+    "release:check": "node scripts/release-metadata.mjs check",
+    "release": "changeset publish",
     "build": "esbuild src/frontend/main.js --bundle --format=esm --splitting --outdir=assets --entry-names=editor --chunk-names=chunks/[name]-[hash] --minify",
     "test": "npm run build && vitest run",
     "test:unit": "vitest run --project unit",
@@ -29,6 +34,7 @@
     "xss": "1.0.15"
   },
   "devDependencies": {
+    "@changesets/cli": "3.0.3",
     "@vitest/browser-playwright": "5.0.4",
     "esbuild": "0.28.2",
     "playwright": "1.64.1",
