@@ -8,7 +8,7 @@ to your workspace, with:
 - First-class GitHub-flavored Markdown support with live previews, built on
   [CodeMirror](https://codemirror.net/).
 - A Vim-tree-style file explorer for quickly navigating project files.
-- Settings and theming, including relative line numbers.
+- Settings and theming, including relative line numbers and keyboard shortcut indicators.
 
 ## Installation
 
@@ -135,6 +135,14 @@ destroys editor views, so components can be mounted independently in tests.
 Reloading temporarily makes the editor read-only to protect the replacement
 from concurrent input. Errors in unrelated UI features no longer mark the
 document as unsaved or conflicted.
+
+Settings apply immediately as an in-memory preview; only **Save** writes changed preferences to disk.
+**Discard**, closing the dialog, and Escape restore the last saved preferences without writing.
+While a save is in flight, duplicate saves and dismissal are blocked; further previews remain editable but require another explicit Save.
+Failed saves keep the preview and display an error so the user can retry or discard it.
+Opening the dialog refreshes persisted preferences without letting a stale read overwrite newer local edits.
+Only changed editor compartments are reconfigured; changing shortcut visibility does not rebuild themes or line numbers.
+The backend retains atomic JSON writes so preferences survive restarts without partially written files.
 
 Backend transport handles loopback serving and request protection before
 dispatching to application routes. Persistent stores retain their individual
