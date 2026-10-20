@@ -42,6 +42,24 @@ async function settingsPage({ content = source, preferences } = {}) {
     return { temporary, path, settingsFile, start, page, errors, numbers, toggle, settingsButton };
 }
 
+test("toolbar displays the Modal V logo and hides it on narrow viewports", async () => {
+    const { page, errors } = await settingsPage();
+    const logo = page.locator(".logo");
+    assert.equal(await logo.isVisible(), true);
+    assert.equal(await logo.getAttribute("aria-hidden"), "true");
+    assert.equal(await logo.innerText(), "");
+    const svg = logo.locator("svg");
+    assert.equal(await svg.getAttribute("viewBox"), "0 0 32 32");
+    assert.equal(await svg.locator("path").count(), 2);
+    assert.deepEqual(await svg.evaluate((node) => {
+        const { width, height } = node.getBoundingClientRect();
+        return { width, height };
+    }), { width: 32, height: 32 });
+    await page.setViewportSize({ width: 480, height: 720 });
+    assert.equal(await logo.isVisible(), false);
+    assert.deepEqual(errors, []);
+});
+
 test("settings dialog exposes its controls and fits narrow viewports", async () => {
     const { page, errors, settingsButton } = await settingsPage();
     assert.equal(await settingsButton.locator('svg[aria-hidden="true"]').isVisible(), true);

@@ -46,8 +46,7 @@ button:disabled { cursor: default; opacity: .5; }
 kbd { font: 11px var(--font-mono, "SFMono-Regular", Consolas, monospace); }
 .toolbar { min-height: 64px; padding: 12px 18px; display: flex; gap: 16px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--editor-border); background: var(--editor-surface); }
 .identity, .controls { display: flex; gap: 12px; align-items: center; min-width: 0; }
-.logo { font: 700 23px var(--font-mono, monospace); color: var(--editor-accent); background: color-mix(in srgb, var(--editor-accent) 9%, var(--editor-surface)); border: 1px solid color-mix(in srgb, var(--editor-accent) 20%, var(--editor-border)); border-radius: 9px; padding: 6px 9px; letter-spacing: -4px; width: 44px; flex-shrink: 0; }
-.logo span { font-size: 16px; }
+.logo { display: grid; place-items: center; background: color-mix(in srgb, var(--editor-accent) 9%, var(--editor-surface)); border: 1px solid color-mix(in srgb, var(--editor-accent) 20%, var(--editor-border)); border-radius: 9px; width: 44px; height: 44px; flex-shrink: 0; }
 .file-info { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
 .file-info strong { font-size: 14px; font-weight: 600; }
 .file-info > span { font: 10px var(--font-mono, monospace); color: var(--editor-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
