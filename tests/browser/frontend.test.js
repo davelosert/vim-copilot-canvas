@@ -97,6 +97,80 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    const longMarkdown = Array.from({ length: 100 }, (_, index) =>
+        `## Section ${index + 1}\n\nParagraph with **formatted text**, a [link](https://example.com), and enough words to wrap across several lines in the editor.\n\n- First item\n- Second item\n`).join("\n");
+    const scrollProgress = (pane) => pane.scrollTop / (pane.scrollHeight - pane.clientHeight);
+    const scrollToProgress = (pane, progress) => { pane.scrollTop = progress * (pane.scrollHeight - pane.clientHeight); };
+    const nextFrames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    it("syncs scrolling in either direction across different content heights without feedback", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", longMarkdown);
+        await app.controller.reload();
+        const source = app.editor.view.scrollDOM, preview = $("preview");
+        await expect.poll(() => source.scrollHeight).toBeGreaterThan(source.clientHeight);
+        expect(preview.scrollHeight).toBeGreaterThan(preview.clientHeight);
+        expect(source.scrollHeight).not.toBe(preview.scrollHeight);
+        await nextFrames();
+
+        for (const pane of [source, preview]) {
+            const other = pane === source ? preview : source;
+            for (const progress of [0.35, 0.7, 1, 0]) {
+                scrollToProgress(pane, progress);
+                await expect.poll(() => Math.abs(scrollProgress(other) - scrollProgress(pane))).toBeLessThan(0.005);
+                await nextFrames();
+                expect(Math.abs(scrollProgress(pane) - progress)).toBeLessThan(0.03);
+                expect(scrollProgress(other)).toBeCloseTo(scrollProgress(pane), 2);
+            }
+        }
+    });
+
+    it("retains scroll progress through layout changes and live preview updates", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", longMarkdown);
+        await app.controller.reload();
+        const source = app.editor.view.scrollDOM, preview = $("preview");
+        await nextFrames();
+        scrollToProgress(preview, 0.6);
+        await expect.poll(() => Math.abs(scrollProgress(source) - scrollProgress(preview))).toBeLessThan(0.005);
+        expect(Math.abs(scrollProgress(preview) - 0.6)).toBeLessThan(0.03);
+        await userEvent.click(document.querySelector('[data-layout="preview"]'));
+        await nextFrames();
+        scrollToProgress(preview, 0.3);
+        await nextFrames();
+        await userEvent.click(document.querySelector('[data-layout="split"]'));
+        await expect.poll(() => Math.abs(scrollProgress(source) - scrollProgress(preview))).toBeLessThan(0.005);
+        expect(Math.abs(scrollProgress(preview) - 0.3)).toBeLessThan(0.03);
+
+        app.editor.view.dispatch({ changes: { from: app.editor.view.state.doc.length, insert: `\n${longMarkdown}` } });
+        await expect.poll(() => preview.querySelectorAll("h2").length).toBe(200);
+        await expect.poll(() => Math.abs(scrollProgress(preview) - scrollProgress(source))).toBeLessThan(0.01);
+    });
+
+    it("resets scrolling on file switches and handles documents without overflow", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/a.md", longMarkdown);
+        await app.controller.reload();
+        const source = app.editor.view.scrollDOM, preview = $("preview");
+        await nextFrames();
+        scrollToProgress(source, 0.8);
+        await expect.poll(() => Math.abs(scrollProgress(preview) - scrollProgress(source))).toBeLessThan(0.005);
+        expect(scrollProgress(preview)).toBeGreaterThan(0.7);
+        await app.controller.open("/work/b.js");
+        await nextFrames();
+        expect(source.scrollTop).toBe(0);
+        await app.controller.open("/work/a.md");
+        await expect.poll(() => preview.scrollTop).toBe(0);
+        expect(source.scrollTop).toBe(0);
+
+        files.set("/work/a.md", "# Short");
+        await app.controller.reload();
+        await nextFrames();
+        expect(preview.scrollTop).toBe(0);
+        expect(source.scrollTop).toBe(0);
+        expect(preview.scrollHeight).toBe(preview.clientHeight);
+    });
+
     it("applies the selected editor theme to the full canvas and follows system mode", async () => {
         document.documentElement.dataset.colorMode = "dark";
         await fixture();

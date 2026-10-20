@@ -1,6 +1,6 @@
 import { isMarkdown, renderMarkdown, wordCount } from "./markdown.js";
 
-export function createPreview({ element, words, readText }) {
+export function createPreview({ element, words, readText, onRender }) {
     let name = "";
     let timer;
     let disposed = false;
@@ -22,6 +22,7 @@ export function createPreview({ element, words, readText }) {
         }
         const count = wordCount(source);
         words.textContent = `${count.toLocaleString()} word${count === 1 ? "" : "s"}`;
+        onRender?.();
     };
     const click = (event) => {
         const link = event.target.closest?.('a[href^="#"]');
