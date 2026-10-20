@@ -16,6 +16,8 @@ export function createDocumentController({ api, readText, onState = () => {}, on
     let error = null;
     let operations = Promise.resolve();
     let autosave = null;
+    let saveTimer = null;
+    const cancelScheduledSave = () => { clearTimeout(saveTimer); saveTimer = null; };
     const pending = () => localVersion !== persistedVersion;
     const getState = () => ({
         current: current && { ...current }, localVersion, persistedVersion,
@@ -70,30 +72,29 @@ export function createDocumentController({ api, readText, onState = () => {}, on
             const version = localVersion;
             const content = readText();
             status = "Recovering draft...";
-            emit();
             const snapshot = await api.draft({ path: current.path, revision: current.revision, content });
             if (disposed) return;
             current = snapshot;
             persistedVersion = version;
             status = pending() ? "Draft pending" : "Draft recovered";
-            emit();
             if (!drain) break;
         }
     }
-    async function flushChanges() {
+    async function flushChanges({ drain = true } = {}) {
         saving = true;
-        emit();
+        const recovering = saveFailed || error !== null;
         try {
             do {
                 await flushDraft({ drain: false });
                 if (disposed) return;
                 if (current.dirty) {
                     status = "Saving...";
-                    emit();
                     try {
                         const snapshot = await api.save({ path: current.path, revision: current.revision });
                         if (disposed) return;
                         current = snapshot;
+                        // The server verified disk matched our base before writing, so this hash is our own write.
+                        if (!snapshot.conflict) observedDiskHash = snapshot.diskHash;
                     } catch (reason) {
                         if (reason.code === "disk_conflict") {
                             const latest = await api.document(current.path);
@@ -105,24 +106,26 @@ export function createDocumentController({ api, readText, onState = () => {}, on
                         throw reason;
                     }
                 }
-            } while (pending() && !disposed);
+            } while (drain && pending() && !disposed);
             saveFailed = false;
             error = null;
-            status = "All changes saved";
+            status = pending() ? "Draft pending" : "All changes saved";
         } finally {
             saving = false;
-            emit();
         }
+        if (recovering) emit();
     }
     function scheduleSave() {
-        if (autosave || disposed) return autosave;
-        autosave = enqueue(flushChanges);
-        autosave.catch(() => {}).finally(() => {
-            autosave = null;
-            // An edit can arrive after the drain completes but before its microtasks settle.
-            if (!disposed && pending() && !saveFailed && !blocked) scheduleSave();
-        });
-        return autosave;
+        if (saveTimer !== null || autosave || disposed) return;
+        // Bound write frequency even during continuous typing; read the latest text when the batch runs.
+        saveTimer = setTimeout(() => {
+            saveTimer = null;
+            autosave = enqueue(() => flushChanges({ drain: false }));
+            autosave.catch(() => {}).finally(() => {
+                autosave = null;
+                if (!disposed && pending() && !saveFailed && !blocked) scheduleSave();
+            });
+        }, 150);
     }
     async function openInternal(path, { discard = false, fromServer = false } = {}) {
         if (path === current.path) return true;
@@ -149,10 +152,9 @@ export function createDocumentController({ api, readText, onState = () => {}, on
             if (disposed) return;
             localVersion++;
             status = "Draft pending";
-            emit();
             scheduleSave();
         },
-        save: () => enqueue(flushChanges),
+        save: () => { cancelScheduledSave(); return enqueue(flushChanges); },
         flushDraft: () => enqueue(() => flushDraft()),
         open: (path, options) => enqueue(() => openInternal(path, options)),
         reload: () => enqueue(async () => {
@@ -212,6 +214,6 @@ export function createDocumentController({ api, readText, onState = () => {}, on
                 emit();
             }
         }),
-        dispose() { disposed = true; },
+        dispose() { disposed = true; cancelScheduledSave(); },
     };
 }

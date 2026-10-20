@@ -162,6 +162,54 @@ describe("mounted frontend with real CodeMirror", () => {
     const scrollToProgress = (pane, progress) => { pane.scrollTop = progress * (pane.scrollHeight - pane.clientHeight); };
     const nextFrames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
+    it("keeps the cursor position when the document is replaced from disk", async () => {
+        const { app, files } = await fixture();
+        const view = app.editor.view;
+        view.dispatch({ selection: { anchor: 12 } });
+        files.set("/work/a.md", "# Title\n\nfirst line changed\nsecond line");
+        await app.controller.reload();
+        expect(app.editor.readText()).toContain("first line changed");
+        expect(view.state.selection.main.head).toBe(12);
+    });
+
+    it("keeps large-file editing available during background saves without save-status DOM updates", async () => {
+        const { app, api, files } = await fixture();
+        files.set("/work/a.md", longMarkdown);
+        await app.controller.reload();
+        const entered = deferred(), held = deferred();
+        const request = api.getMockImplementation();
+        api.mockImplementation(async (path, input) => {
+            if (path === "save") { entered.resolve(); await held.promise; }
+            return request(path, input);
+        });
+        const mutations = [];
+        const observer = new MutationObserver((records) => mutations.push(...records));
+        for (const id of ["filename", "draft-status", "save-status"]) {
+            observer.observe($(id), { subtree: true, childList: true, characterData: true, attributes: true });
+        }
+        try {
+            app.editor.view.dispatch({ changes: { from: 0, insert: "First " } });
+            await entered.promise;
+            app.editor.focus();
+            await key("i");
+            await key("Still typing ");
+            expect(app.editor.readText()).toContain("Still typing ");
+            expect(app.controller.getState().localPending).toBe(true);
+            expect(app.editor.view.hasFocus).toBe(true);
+            expect($("save-status").hidden).toBe(true);
+            expect($("draft-status").textContent).toBe("");
+            expect($("filename").textContent).toBe("a.md");
+            held.resolve();
+            await app.controller.save();
+            await nextFrames();
+            expect(files.get("/work/a.md")).toBe(app.editor.readText());
+            expect(mutations).toHaveLength(0);
+        } finally {
+            held.resolve();
+            observer.disconnect();
+        }
+    });
+
     it("shows Markdown headings in a separate outline tab and jumps to their exact source lines", async () => {
         const { app, files } = await fixture();
         files.set("/work/a.md", [
@@ -912,7 +960,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await expect.poll(() => $("notice-text").textContent).toBe("tree unavailable");
         expect(app.controller.getState().blocked).toBe(false);
         expect($("conflict").hidden).toBe(true);
-        expect($("save-status").textContent).toBe("Saved to disk");
+        expect($("save-status").hidden).toBe(true);
     });
 
     it("automatically reloads disk conflicts without marking the replacement as a local edit", async () => {

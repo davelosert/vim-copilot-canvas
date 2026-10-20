@@ -77,10 +77,11 @@ export function createShell({ elements: e, window, editor, readText, onReload, o
         },
         state(state) {
             if (disposed || !state.current) return;
-            const { current, dirty, blocked, saveFailed } = state;
-            e.filename.textContent = `${current.name}${dirty ? " •" : ""}`;
-            e.saveStatus.textContent = blocked ? "Draft conflict" : current.conflict ? "Disk conflict" : saveFailed ? "Not saved" : dirty ? "Saving..." : "Saved to disk";
-            e.draftStatus.textContent = state.status;
+            const { current, blocked, saveFailed } = state;
+            if (e.filename.textContent !== current.name) e.filename.textContent = current.name;
+            const saveError = blocked ? "Draft conflict" : current.conflict ? "Disk conflict" : saveFailed ? "Not saved" : "";
+            if (e.saveStatus.textContent !== saveError) e.saveStatus.textContent = saveError;
+            e.saveStatus.hidden = !saveError;
             e.conflict.hidden = !current.conflict && !blocked;
             e.conflict.querySelector("span").textContent = blocked
                 ? "Another panel changed this draft. Your local text is preserved."
