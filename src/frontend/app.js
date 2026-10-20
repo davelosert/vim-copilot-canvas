@@ -38,12 +38,14 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         reviewCount: () => review.count(),
         send: (input) => api("agent", input),
         addToReview: async (input) => review.set(await api("review/add", input)),
+        editReview: async (input) => review.set(await api("review/edit", input)),
+        removeReview: async (id) => review.set(await api("review/remove", { ids: [id] })),
         sendReview: async (input) => {
             if (input) review.set(await api("review/add", input));
             await review.submit();
         },
         onDone: (kind) => {
-            if (!disposed) $("agent-status").textContent = kind === "review" ? `Added to review (${review.count()})` : kind === "send" ? "Sent to Agent" : "";
+            if (!disposed) $("agent-status").textContent = kind === "review" ? `Added to batch (${review.count()})` : kind === "edit" ? "Batch comment updated" : kind === "delete" ? "Batch comment deleted" : kind === "send" ? "Sent to Agent" : "";
         },
         extensions: () => editor.currentTheme(),
     });
@@ -121,14 +123,13 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     review = createReview({
         elements: elements({ bar: "review", count: "review-count", list: "review-list", send: "review-send", discard: "review-discard", toggle: "review-toggle", status: "agent-status" }),
         api, confirm, onError: report,
-        onMarkers: (lines) => {
+        onMarkers: (items) => {
             if (disposed || !editor.view) return;
-            if (lines === null) review.markers(controller.getState().current.path);
-            else agent.setMarkers(editor.view, lines);
+            if (items === null) review.markers(controller.getState().current.path);
+            else agent.setMarkers(editor.view, items);
         },
-        navigate: async (item) => {
-            await open(item.path);
-            if (!disposed && controller.getState().current.path === item.path) editor.jumpTo(item.lines[0].start);
+        edit: async (item) => {
+            if (await open(item.path) && !disposed && controller.getState().current.path === item.path) agent.edit(editor.view, item);
         },
     });
     const explorer = createExplorer({
@@ -137,8 +138,8 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         onHide: () => { shell.setSidebar(false); editor.focus(); }, onError: report,
     });
     const preferences = createSettings({
-        elements: elements({ dialog: "settings", button: "settings-button", close: "close-settings", relative: "relative-line-numbers", theme: "editor-theme", status: "settings-status" }),
-        api, onSettings: (value) => { editor.applySettings(value); applyShellTheme(); },
+        elements: elements({ dialog: "settings", button: "settings-button", close: "close-settings", relative: "relative-line-numbers", agentVim: "agent-vim-mode", theme: "editor-theme", status: "settings-status" }),
+        api, onSettings: (value) => { editor.applySettings(value); agent.applySettings(value); applyShellTheme(); },
     });
     controller = createDocumentController({
         api: {
