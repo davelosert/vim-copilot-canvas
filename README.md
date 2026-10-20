@@ -44,6 +44,61 @@ production-page tests; there is no separate Playwright test runner.
 | `npm run test:e2e` | Fresh production build and real HTTP-page tests |
 | `npm run test:watch` | Interactive Vitest development mode |
 
+### Releases
+
+Releases use [Changesets](https://changesets.dev/). This is a GitHub-distributed
+plugin, not an npm package: `private: true` prevents npm publication. Before the
+first release, package and plugin versions use a `0.0.0` baseline. The initial
+major changeset prepares the first `1.0.0` release.
+
+For a user-facing change, run `npm run changeset`, select `vim-copilot-canvas`,
+choose a patch, minor, or major bump, and write a user-facing summary. Commit the
+generated `.changeset/*.md` file with the change. Documentation, tests, and
+maintenance-only changes may omit a changeset; CI validates existing changesets
+but does not require one on every PR.
+
+On pushes to `main`, the **Release** workflow creates or updates a
+`chore: release plugin` PR. Its `npm run version:release` command consumes pending
+changesets, generates `CHANGELOG.md`, and synchronizes `package.json`,
+`package-lock.json`, `plugin.json`, and the marketplace catalog's plugin and
+metadata versions. Do not bump these versions independently.
+
+Merge that PR once its required **Tests** check passes. The next release run
+uses `changeset publish` to tag the private package and the Changesets action
+creates a `vX.Y.Z` GitHub release at the merged commit, using that version's
+changelog entry as release notes. GitHub provides source archives containing the
+already-committed production assets; the workflow does not publish to npm or
+change how the Copilot App installs this repository. Existing releases are left
+unchanged on reruns. **Actions > Release > Run workflow** on `main` can retry an
+interrupted run. If a run pushed a tag but failed before creating its release,
+create the missing GitHub release from that tag and its changelog entry manually;
+Changesets skips versions that are already tagged.
+
+#### One-time repository setup
+
+1. Create and install a GitHub App on this repository with repository permissions
+   **Contents: Read and write** and **Pull requests: Read and write**. It must be
+   allowed to push the `changeset-release/main` branch and create PRs; no bypass
+   of `main` protection is needed.
+2. Under **Settings > Secrets and variables > Actions**, add the App's client ID
+   as a repository **variable** named `RELEASE_APP_CLIENT_ID`.
+3. Generate a private key for the App and store its complete PEM contents as a
+   repository **secret** named `RELEASE_APP_PRIVATE_KEY`.
+
+The workflow mints a short-lived installation token scoped to this repository,
+with only Contents and Pull requests write permissions. The token action revokes
+it when the job finishes. App-authenticated release-PR pushes trigger CI. GitHub's built-in
+`GITHUB_TOKEN` does not trigger subsequent push/PR workflows, so using it to
+create the PR would leave this repository's required **Tests** check missing.
+The same token creates release tags and GitHub releases through the Changesets
+action. The built-in token remains read-only; enabling Actions PR creation for
+that token is not required. No npm credentials or personal access tokens are
+required: Changesets tags private packages without publishing them to npm.
+
+`npm run release:check` verifies version consistency locally and in CI.
+`npm run version:release` is normally automation-owned; use it locally only to
+debug versioning, and inspect all generated changes before committing.
+
 ### Source layout and ownership
 
 ```text
