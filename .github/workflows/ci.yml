@@ -30,8 +30,8 @@ jobs:
         run: |
           npm run release:check
           npm run changeset -- status --since origin/main
-      - name: Install Chromium and system dependencies
-        run: npx playwright install --with-deps chromium
+      - name: Install Chromium, WebKit, and system dependencies
+        run: npx playwright install --with-deps chromium webkit
       - name: Verify committed frontend assets match a clean build
         run: npm run build:check
       - name: Run all tests

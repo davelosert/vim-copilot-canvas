@@ -78,9 +78,11 @@ function fakeApi() {
     return { api, files };
 }
 
-async function fixture(options = {}) {
+async function fixture({ dev = false, ...options } = {}) {
     const body = new DOMParser().parseFromString(markup, "text/html").body;
     document.body.innerHTML = body.innerHTML;
+    if (dev) document.querySelector(".controls").insertAdjacentHTML("afterbegin",
+        '<button id="dev-reload-button" type="button">Reload canvas</button>');
     const style = document.createElement("style");
     style.textContent = stylesheet;
     document.body.prepend(style);
@@ -105,11 +107,108 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    it("rebuilds before reloading the dev canvas and blocks duplicate clicks", async () => {
+        const reloadCanvas = vi.fn();
+        const { app, api } = await fixture({ dev: true, reloadCanvas });
+        const build = deferred();
+        const original = api.getMockImplementation();
+        api.mockImplementation((path, input) => path === "dev/reload" ? build.promise : original(path, input));
+        const flush = vi.spyOn(app.controller, "flushDraft");
+        await userEvent.click($("dev-reload-button"));
+        expect($("dev-reload-button").disabled).toBe(true);
+        expect($("dev-reload-button").textContent).toBe("Rebuilding...");
+        $("dev-reload-button").click();
+        expect(api.mock.calls.filter(([path]) => path === "dev/reload")).toHaveLength(1);
+        expect(flush).not.toHaveBeenCalled();
+        expect(reloadCanvas).not.toHaveBeenCalled();
+        build.resolve({});
+        await expect.poll(() => reloadCanvas.mock.calls.length).toBe(1);
+        expect(flush).toHaveBeenCalledOnce();
+    });
+
+    it("keeps the editor open and allows retry after a dev rebuild failure", async () => {
+        const reloadCanvas = vi.fn();
+        const { api } = await fixture({ dev: true, reloadCanvas });
+        const original = api.getMockImplementation();
+        let failed = true;
+        api.mockImplementation((path, input) => {
+            if (path !== "dev/reload") return original(path, input);
+            return failed ? Promise.reject(new Error("Build failed: syntax error")) : Promise.resolve({});
+        });
+        await userEvent.click($("dev-reload-button"));
+        await expect.poll(() => $("notice-text").textContent).toContain("Build failed: syntax error");
+        expect($("dev-reload-button").disabled).toBe(false);
+        expect(reloadCanvas).not.toHaveBeenCalled();
+        failed = false;
+        await userEvent.click($("dev-reload-button"));
+        await expect.poll(() => reloadCanvas.mock.calls.length).toBe(1);
+    });
+
+    it("does not reload if preserving the draft fails", async () => {
+        const reloadCanvas = vi.fn();
+        const { app, api } = await fixture({ dev: true, reloadCanvas });
+        const original = api.getMockImplementation();
+        api.mockImplementation((path, input) => path === "dev/reload" ? Promise.resolve({}) : original(path, input));
+        vi.spyOn(app.controller, "flushDraft").mockRejectedValue(new Error("Draft conflict"));
+        await userEvent.click($("dev-reload-button"));
+        await expect.poll(() => $("notice-text").textContent).toContain("Draft conflict");
+        expect($("dev-reload-button").disabled).toBe(false);
+        expect(reloadCanvas).not.toHaveBeenCalled();
+    });
+
     const longMarkdown = Array.from({ length: 100 }, (_, index) =>
         `## Section ${index + 1}\n\nParagraph with **formatted text**, a [link](https://example.com), and enough words to wrap across several lines in the editor.\n\n- First item\n- Second item\n`).join("\n");
     const scrollProgress = (pane) => pane.scrollTop / (pane.scrollHeight - pane.clientHeight);
     const scrollToProgress = (pane, progress) => { pane.scrollTop = progress * (pane.scrollHeight - pane.clientHeight); };
     const nextFrames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    it("keeps the cursor position when the document is replaced from disk", async () => {
+        const { app, files } = await fixture();
+        const view = app.editor.view;
+        view.dispatch({ selection: { anchor: 12 } });
+        files.set("/work/a.md", "# Title\n\nfirst line changed\nsecond line");
+        await app.controller.reload();
+        expect(app.editor.readText()).toContain("first line changed");
+        expect(view.state.selection.main.head).toBe(12);
+    });
+
+    it("keeps large-file editing available during background saves without save-status DOM updates", async () => {
+        const { app, api, files } = await fixture();
+        files.set("/work/a.md", longMarkdown);
+        await app.controller.reload();
+        const entered = deferred(), held = deferred();
+        const request = api.getMockImplementation();
+        api.mockImplementation(async (path, input) => {
+            if (path === "save") { entered.resolve(); await held.promise; }
+            return request(path, input);
+        });
+        const mutations = [];
+        const observer = new MutationObserver((records) => mutations.push(...records));
+        for (const id of ["filename", "draft-status", "save-status"]) {
+            observer.observe($(id), { subtree: true, childList: true, characterData: true, attributes: true });
+        }
+        try {
+            app.editor.view.dispatch({ changes: { from: 0, insert: "First " } });
+            await entered.promise;
+            app.editor.focus();
+            await key("i");
+            await key("Still typing ");
+            expect(app.editor.readText()).toContain("Still typing ");
+            expect(app.controller.getState().localPending).toBe(true);
+            expect(app.editor.view.hasFocus).toBe(true);
+            expect($("save-status").hidden).toBe(true);
+            expect($("draft-status").textContent).toBe("");
+            expect($("filename").textContent).toBe("a.md");
+            held.resolve();
+            await app.controller.save();
+            await nextFrames();
+            expect(files.get("/work/a.md")).toBe(app.editor.readText());
+            expect(mutations).toHaveLength(0);
+        } finally {
+            held.resolve();
+            observer.disconnect();
+        }
+    });
 
     it("shows Markdown headings in a separate outline tab and jumps to their exact source lines", async () => {
         const { app, files } = await fixture();
@@ -861,7 +960,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await expect.poll(() => $("notice-text").textContent).toBe("tree unavailable");
         expect(app.controller.getState().blocked).toBe(false);
         expect($("conflict").hidden).toBe(true);
-        expect($("save-status").textContent).toBe("Saved to disk");
+        expect($("save-status").hidden).toBe(true);
     });
 
     it("automatically reloads disk conflicts without marking the replacement as a local edit", async () => {

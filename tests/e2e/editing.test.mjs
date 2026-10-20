@@ -33,7 +33,7 @@ async function editorPage({ content = initialContent } = {}) {
     };
 }
 
-test("normal/insert modes, immediate disk writes, live preview, and :w", async () => {
+test("normal/insert modes, background disk writes, live preview, and :w", async () => {
     const { path, page, errors, mode, state, command } = await editorPage();
     assert.equal(await mode(), "NORMAL");
     assert.equal(await page.locator("#save-button").count(), 0);
@@ -138,7 +138,7 @@ test("failed automatic writes retain the draft and keyboard save retries", async
     await page.unroute("**/api/save");
     await page.keyboard.press("Control+s");
     await until(async () => assert.match(await readFile(path, "utf8"), /^Retry /));
-    await until(async () => assert.equal(await page.locator("#save-status").innerText(), "Saved to disk"));
+    await until(async () => assert.equal(await page.locator("#save-status").isVisible(), false));
     assert.deepEqual(errors, []);
 });
 
@@ -161,7 +161,7 @@ test("external edits automatically replace the open document without a warning",
     assert.equal((await state()).content, "# External replacement\n");
     await until(async () => assert.equal(await page.locator("#conflict").isVisible(), false));
     await until(async () => assert.equal(await page.locator("#notice").isVisible(), false));
-    assert.equal(await page.locator("#save-status").innerText(), "Saved to disk");
+    assert.equal(await page.locator("#save-status").isVisible(), false);
     assert.deepEqual(errors, []);
 });
 

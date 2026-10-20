@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDocumentController } from "../../src/frontend/document-controller.js";
 
 const deferred = () => {
@@ -10,7 +10,9 @@ const snapshot = (overrides = {}) => ({
     path: "/work/a.md", name: "a.md", content: "initial", revision: "r0",
     diskHash: "disk0", dirty: false, conflict: false, ...overrides,
 });
-function fixture(overrides = {}) {
+afterEach(() => vi.useRealTimers());
+
+function fixture(overrides = {}, onState = vi.fn()) {
     let text = "initial";
     let revision = 0;
     let server = snapshot();
@@ -24,7 +26,7 @@ function fixture(overrides = {}) {
         ...overrides,
     };
     const controller = createDocumentController({
-        api, readText: () => text,
+        api, readText: () => text, onState,
         onDocument: (value, options) => { text = value.content; documents.push([value, options]); },
     });
     controller.initialize(snapshot());
@@ -36,6 +38,78 @@ function fixture(overrides = {}) {
 }
 
 describe("document ownership and serialized persistence", () => {
+    it("coalesces continuous typing into bounded background writes without UI notifications", async () => {
+        vi.useFakeTimers();
+        const onState = vi.fn();
+        const f = fixture({}, onState);
+        onState.mockClear();
+        for (const text of ["f", "fi", "first"]) {
+            f.edit(text);
+            await vi.advanceTimersByTimeAsync(40);
+        }
+        expect(f.api.draft).not.toHaveBeenCalled();
+        expect(f.controller.getState().dirty).toBe(true);
+        await vi.advanceTimersByTimeAsync(30);
+        expect(f.api.draft).toHaveBeenCalledTimes(1);
+        expect(f.api.draft.mock.calls[0][0].content).toBe("first");
+        expect(f.api.save).toHaveBeenCalledTimes(1);
+        expect(f.controller.getState().dirty).toBe(false);
+        expect(onState).not.toHaveBeenCalled();
+        f.controller.dispose();
+    });
+
+    it("flushes immediately on explicit save and cancels delayed writes on disposal", async () => {
+        vi.useFakeTimers();
+        const f = fixture();
+        f.edit("flush now");
+        await f.controller.save();
+        expect(f.api.draft).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(150);
+        expect(f.api.save).toHaveBeenCalledTimes(1);
+        f.edit("disposed");
+        f.controller.dispose();
+        await vi.advanceTimersByTimeAsync(150);
+        expect(f.api.draft).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps edits local during a slow background write and batches the next generation", async () => {
+        vi.useFakeTimers();
+        const held = deferred();
+        const onState = vi.fn();
+        const f = fixture({}, onState);
+        f.api.save.mockImplementationOnce(() => held.promise);
+        onState.mockClear();
+        f.edit("first");
+        await vi.advanceTimersByTimeAsync(150);
+        f.edit("second");
+        f.edit("latest");
+        expect(f.text()).toBe("latest");
+        expect(f.api.draft).toHaveBeenCalledTimes(1);
+        expect(f.controller.getState().localPending).toBe(true);
+        held.resolve(snapshot({ content: "first", revision: "r2" }));
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(149);
+        expect(f.api.draft).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(f.api.draft.mock.calls.map(([input]) => input.content)).toEqual(["first", "latest"]);
+        expect(f.controller.getState().dirty).toBe(false);
+        expect(onState).not.toHaveBeenCalled();
+        f.controller.dispose();
+    });
+
+    it("does not treat its own disk writes as external changes on the next poll", async () => {
+        const f = fixture({
+            save: vi.fn(async () => snapshot({ content: "mine", revision: "r2", diskHash: "disk-mine" })),
+            document: vi.fn(async () => snapshot({ content: "mine", revision: "r2", diskHash: "disk-mine" })),
+        });
+        f.edit("mine");
+        await f.controller.save();
+        await f.controller.poll();
+        expect(f.api.reload).not.toHaveBeenCalled();
+        expect(f.documents).toHaveLength(1);
+        f.controller.dispose();
+    });
+
     it("is DOM-free, exposes copies, and persists a draft before saving disk", async () => {
         const f = fixture();
         f.controller.getState().current.path = "not-owned";
@@ -73,7 +147,7 @@ describe("document ownership and serialized persistence", () => {
         const f = fixture();
         f.api.save.mockRejectedValueOnce(new Error("offline"));
         f.edit("retry");
-        // This explicit save follows the failed autosave in the same queue.
+        await expect(f.controller.save()).rejects.toThrow("offline");
         await f.controller.save();
         expect(f.api.save).toHaveBeenCalledTimes(2);
         expect(f.controller.getState()).toMatchObject({ saveFailed: false, dirty: false, error: null });

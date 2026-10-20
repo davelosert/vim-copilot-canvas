@@ -1,12 +1,13 @@
 import { basicSetup } from "codemirror";
 import { EditorState, Compartment } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
-import { markdown } from "@codemirror/lang-markdown";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { LanguageDescription } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { vim, getCM } from "@replit/codemirror-vim";
 import { editorTheme, editorThemePalette } from "./theme.js";
 import { isMarkdown } from "./markdown.js";
+import { markdownLinks } from "./markdown-links.js";
 
 export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor, onMode, onLanguage, onError, systemDark = false }) {
     const theme = new Compartment(), numbering = new Compartment(), language = new Compartment();
@@ -37,7 +38,8 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
                         transaction.newDoc.lineAt(transaction.newSelection.main.head).number) return null;
                     return { effects: numbering.reconfigure(lineNumberStyle()) };
                 }),
-                language.of(isMarkdown(snapshot.name) ? markdown({ codeLanguages: languages }) : []),
+                language.of(isMarkdown(snapshot.name)
+                    ? [markdown({ base: markdownLanguage, codeLanguages: languages }), markdownLinks()] : []),
                 EditorView.lineWrapping, extensions,
                 lineBreaks.of(EditorState.lineSeparator.of(snapshot.content.includes("\r\n") ? "\r\n" : "\n")),
                 theme.of(currentTheme()), editable.of([EditorView.editable.of(isEditable), EditorState.readOnly.of(!isEditable)]),
@@ -87,10 +89,14 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
                     view.setState(state(snapshot));
                     attachVim();
                 } else {
+                    const { anchor, head } = view.state.selection.main;
                     view.dispatch({
                         changes: { from: 0, to: view.state.doc.length, insert: snapshot.content },
                         effects: lineBreaks.reconfigure(EditorState.lineSeparator.of(snapshot.content.includes("\r\n") ? "\r\n" : "\n")),
                     });
+                    // Full replacement maps the cursor to 0; keep it where the user was instead.
+                    const length = view.state.doc.length;
+                    view.dispatch({ selection: { anchor: Math.min(anchor, length), head: Math.min(head, length) } });
                 }
             } finally { applying = false; }
             configureLanguage(snapshot);

@@ -265,7 +265,7 @@ test("failed settings saves retain the preview for retry or discard without chan
     await until(async () => assert.match(await page.locator("#settings-status").innerText(), /Settings disk is unavailable/));
     assert.equal(await page.locator("#relative-line-numbers").isChecked(), false);
     assert.equal(await page.locator("#save-settings").isEnabled(), true);
-    assert.equal(await page.locator("#save-status").innerText(), "Saved to disk");
+    assert.equal(await page.locator("#save-status").isVisible(), false);
     assert.deepEqual(await numbers(), ["1", "2", "3"]);
     await page.locator("#discard-settings").click();
     assert.equal(await page.locator("#relative-line-numbers").isChecked(), true);

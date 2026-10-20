@@ -7,14 +7,16 @@ Use Node.js `^22.12.0 || ^24.0.0 || >=26.0.0`. `npm test` builds the production 
 | `npm run test:unit` | Logic and editor state |
 | `npm run test:integration` | Filesystem and HTTP behavior |
 | `npm run test:browser` | UI components and app in Vitest Browser Mode |
-| `npm run test:e2e` | Built app and HTTP pages |
+| `npm run test:e2e` | Built app and HTTP pages in Chromium and WebKit |
 | `npm run test:watch` | Interactive test mode |
+
+Install both browser engines locally with `npx playwright install chromium webkit` before running the end-to-end tests.
 
 ## Development canvas
 
 Repository sessions discover `.github/extensions/vim-canvas-dev/extension.mjs`, which registers **Vim Copilot Canvas (Dev)** (`vim-markdown-dev`). Open it to run the backend and serve assets from the current checkout.
 
-Rebuild after frontend changes. Reload extensions after backend or provider changes. Dev drafts and pending batches are stored separately per session; explicit file saves still update the files in the checkout.
+Install dependencies with `npm ci`. After frontend changes, click **Reload canvas** in the dev toolbar to rebuild assets from the current checkout and refresh the panel. The button preserves the current document draft before refreshing; rebuild failures appear in the canvas and leave the editor open for a retry. Reload extensions after backend or provider changes. Dev drafts and pending batches are stored separately per session; explicit file saves still update the files in the checkout.
 
 ## Source layout and ownership
 
