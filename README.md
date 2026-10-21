@@ -6,7 +6,7 @@ A [GitHub Copilot App canvas](https://docs.github.com/en/copilot/how-tos/github-
 
 ## Features
 
-- **Targeted Agent Assistance:** Select one or more lines in a file and prompt Copilot inline to hand them to the Agent for changes or answers to your questions. You can also **batch changes** before sending them off to the agent. This allows you to make targeted edits with ease.
+- **Agent Assistance:** Select one or more lines in a file and prompt Copilot inline to hand them to the Agent for changes or answers to your questions. You can also **batch changes** before sending them off to the agent. This allows you to make targeted edits with ease.
 - **Premium Markdown Support:** Markdown files come with a synchronized live preview rendering GitHub-flavored Markdown and section navigation, allowing you to read and edit Markdown files easily and quickly.
 - **Vim-Based File Navigation:** Navigate the files in your repository Vim-style in the side pane, so you can easily navigate your entire project.
 - **Direct File Editing:** Unlike traditional Vim, edits go directly to files instead of a separate buffer, so there is no need to save with `:w`.
