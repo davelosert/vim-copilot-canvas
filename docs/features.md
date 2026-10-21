@@ -6,6 +6,7 @@ Vim Copilot Canvas is a GitHub Copilot App canvas for editing Markdown in your w
 
 - Edit GitHub-flavored Markdown with Vim navigation and editing modes.
 - Preview changes live, with bidirectional scroll sync between the editor and preview.
+- Markdown preview parsing runs in a worker thread on the canvas server, and unchanged preview blocks and images are preserved across edits. Edit-only mode suspends preview processing and hides the preview's word count; hidden outlines also suspend updates and catch up when reopened.
 - Preview local images, including SVG, resolved relative to the Markdown file within the workspace. Images are limited to 5 MiB each; external images are not fetched.
 - Open web links from the Markdown editor with **Cmd+click** on macOS or **Ctrl+click** on Windows/Linux. Holding the modifier highlights the hovered link and shows the system link-pointer cursor; ordinary clicks still position the cursor.
 - Save files locally. Conflicting drafts are preserved rather than overwriting disk changes.

@@ -6,6 +6,7 @@ import { EditorError } from "./errors.mjs";
 import { SettingsStore } from "./settings-store.mjs";
 import { ReviewStore } from "./review-store.mjs";
 import { createRoutes } from "./routes.mjs";
+import { createMarkdownService } from "./markdown-service.mjs";
 
 const MAX_BODY_BYTES = 14 * 1024 * 1024;
 const CONTENT_SECURITY_POLICY =
@@ -104,6 +105,14 @@ export async function listen({ root, routes, devReload }) {
     };
 }
 
+// One renderer thread per installation root, shared by every panel in this process.
+const markdownServices = new Map();
+function markdownService(root) {
+    const script = join(root, "assets/server/markdown-worker.mjs");
+    if (!markdownServices.has(script)) markdownServices.set(script, createMarkdownService({ script }));
+    return markdownServices.get(script);
+}
+
 /**
  * Start one editor panel server.
  * @param {object} options
@@ -111,7 +120,7 @@ export async function listen({ root, routes, devReload }) {
  */
 export async function startServer({ store, workspace, document, root, sendMessage, devReload,
     reviews = new ReviewStore(join(store.artifacts, "reviews")), settings = new SettingsStore() }) {
-    const routes = createRoutes({ store, workspace, document, reviews, settings, sendMessage });
+    const routes = createRoutes({ store, workspace, document, reviews, settings, sendMessage, markdown: markdownService(root) });
     if (devReload) routes.post.set("/api/dev/reload", devReload);
     const transport = await listen({ root, routes, devReload });
     return {

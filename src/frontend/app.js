@@ -111,6 +111,8 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             layouts: root.querySelectorAll("button[data-layout]"),
         },
         window: win, editor, readText: editor.readText, onExplorer: focusExplorer, onError: report,
+        onLayout: (layout) => preview.setVisible(layout !== "edit"),
+        onSidebar: (open) => outline?.setVisible(open && sidebarView === "outline"),
         onReload: () => {
             if (!confirm("Discard the unsaved draft for this file and reload the disk version? This also affects other panels editing the same draft.")) return;
             editor.setEditable(false);
@@ -119,6 +121,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     });
     const preview = createPreview({
         element: $("preview"), words: $("words"), readText: editor.readText,
+        renderSource: (source) => api("render", { source }),
         loadImage: (path, source) => api("image", { path, source }), onError: report,
         onRender: () => scrollSync?.refresh(),
     });
@@ -141,6 +144,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     });
     outline = createOutline({
         list: $("outline"), name: $("outline-name"), getDocument: () => editor.view?.state.doc,
+        visible: false,
         onJump: (line, { focusEditor }) => {
             shell.revealSource();
             editor.jumpTo(line, { focus: focusEditor });
@@ -158,6 +162,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             $(`${name}-tab`).tabIndex = selected ? 0 : -1;
             $(`${name}-panel`).hidden = !selected;
         }
+        outline.setVisible(view === "outline" && shell.sidebarOpen());
     };
     for (const view of sidebarViews) {
         const tab = $(`${view}-tab`);

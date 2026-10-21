@@ -1,11 +1,12 @@
 import { markdownLanguage } from "@codemirror/lang-markdown";
 import { isMarkdown, renderMarkdown } from "./markdown.js";
 
-export function createOutline({ list, name, getDocument, onJump, onLeave, onHide }) {
+export function createOutline({ list, name, getDocument, onJump, onLeave, onHide, visible = true }) {
     const doc = list.ownerDocument;
     const handlers = new AbortController();
     let filename = "", headings = [], selected = 0, cursorLine = 1;
     let timer, gTimer, pendingG = false, pendingWindow = false;
+    let dirty = true, renderedSelected = -1, renderedActive = -1;
 
     function selection({ scroll = false } = {}) {
         let active = -1;
@@ -13,12 +14,16 @@ export function createOutline({ list, name, getDocument, onJump, onLeave, onHide
             if (heading.line > cursorLine) break;
             active = index;
         }
-        for (const [index, row] of [...list.querySelectorAll('[role="option"]')].entries()) {
+        for (const index of new Set([renderedSelected, renderedActive, selected, active])) {
+            const row = headings[index] && list.children[index];
+            if (!row) continue;
             row.setAttribute("aria-selected", String(index === selected));
             row.classList.toggle("active", index === active);
             if (index === active) row.setAttribute("aria-current", "location");
             else row.removeAttribute("aria-current");
         }
+        renderedSelected = selected;
+        renderedActive = active;
         const row = headings.length ? list.children[selected] : null;
         if (row) {
             list.setAttribute("aria-activedescendant", row.id);
@@ -28,6 +33,8 @@ export function createOutline({ list, name, getDocument, onJump, onLeave, onHide
 
     function render() {
         clearTimeout(timer);
+        if (!visible) return;
+        dirty = false;
         const text = getDocument();
         const source = text?.toString() ?? "";
         headings = [];
@@ -57,6 +64,7 @@ export function createOutline({ list, name, getDocument, onJump, onLeave, onHide
             row.dataset.index = String(index);
             row.dataset.line = String(heading.line);
             row.setAttribute("role", "option");
+            row.setAttribute("aria-selected", "false");
             row.style.paddingLeft = `${8 + (heading.level - 1) * 14}px`;
             row.title = `${heading.label} (line ${heading.line})`;
             const level = doc.createElement("span");
@@ -76,6 +84,7 @@ export function createOutline({ list, name, getDocument, onJump, onLeave, onHide
             fragment.append(empty);
         }
         list.replaceChildren(fragment);
+        renderedSelected = renderedActive = -1;
         selection();
     }
 
@@ -137,11 +146,22 @@ export function createOutline({ list, name, getDocument, onJump, onLeave, onHide
             filename = snapshot.name;
             name.textContent = name.title = filename;
             selected = 0;
+            dirty = true;
             render();
         },
-        edited() { clearTimeout(timer); timer = setTimeout(render, 100); },
+        edited() { dirty = true; clearTimeout(timer); if (visible) timer = setTimeout(render, 100); },
+        setVisible(value) {
+            visible = value;
+            if (!visible) clearTimeout(timer);
+            else if (dirty) render();
+            else {
+                if (doc.activeElement !== list) selected = Math.max(0, headings.findLastIndex((heading) => heading.line <= cursorLine));
+                selection();
+            }
+        },
         cursor({ line }) {
             cursorLine = line;
+            if (!visible) return;
             if (doc.activeElement !== list) {
                 selected = Math.max(0, headings.findLastIndex((heading) => heading.line <= line));
             }
