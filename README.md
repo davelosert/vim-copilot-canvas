@@ -14,6 +14,22 @@ A [GitHub Copilot App canvas](https://docs.github.com/en/copilot/how-tos/github-
 - **Theming & Settings:** Choose from all of CodeMirror's supported themes and choose different settings to individualize the experience.
 - **Open Links:** Open links from the Markdown editor with **Cmd+click** on macOS or **Ctrl+click** on Windows/Linux. Ordinary clicks still position the cursor.
 
+## Installation
+
+### GitHub Copilot App
+
+1. In the app sidebar, click **Customize**, then **Plugins**.
+2. Click the settings icon beside the marketplace dropdown and add `davelosert/vim-copilot-canvas` as a marketplace.
+3. Find **Vim Copilot Canvas** in the plugin list and click **Install**.
+4. Start a new session and ask Copilot to open **Vim Copilot Canvas** (`vim-markdown`).
+
+### Copilot CLI
+
+```sh
+copilot plugin marketplace add davelosert/vim-copilot-canvas
+copilot plugin install vim-copilot-canvas@vim-copilot-canvas
+```
+
 See the [feature guide](docs/features.md) for usage details, [get started](docs/getting-started.md), and the [development guide](docs/development.md) to contribute.
 
 ## Development
