@@ -488,13 +488,30 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.selectOptions($("editor-theme"), "dracula");
         await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        expect($("settings").open).toBe(false);
         expect(app.editor.readText()).toBe(content);
         expect(app.editor.view.state.selection.main.head).toBe(selection);
-        await userEvent.click($("close-settings"));
         app.editor.focus();
         await key("u");
         await expect.poll(() => app.editor.readText()).toBe("# Title\n\nfirst line\nsecond line");
         expect(api.mock.calls.some(([path, input]) => path === "settings" && input?.relativeLineNumbers)).toBe(true);
+    });
+
+    it("keeps Vim visual selections visible on the cursor line", async () => {
+        const { app } = await fixture();
+        const activeLine = () => getComputedStyle(document.querySelector(".cm-activeLine")).backgroundColor;
+        const visibleSelection = () => [...document.querySelectorAll(".cm-selectionBackground")]
+            .some((marker) => marker.getBoundingClientRect().width > 0) && activeLine() === "rgba(0, 0, 0, 0)";
+        app.editor.focus();
+        expect(activeLine()).not.toBe("rgba(0, 0, 0, 0)");
+        await key("jjV");
+        await expect.poll(visibleSelection).toBe(true);
+        await key("{Escape}");
+        await expect.poll(activeLine).not.toBe("rgba(0, 0, 0, 0)");
+        await insert(app, "(inner) ");
+        await key("0fivi(");
+        expect(app.editor.view.state.sliceDoc(app.editor.view.state.selection.main.from, app.editor.view.state.selection.main.to)).toBe("inner");
+        await expect.poll(visibleSelection).toBe(true);
     });
 
     it("shows or hides keyboard shortcut indicators throughout the canvas without disabling shortcuts", async () => {
@@ -571,13 +588,15 @@ describe("mounted frontend with real CodeMirror", () => {
             expect($("discard-settings").disabled).toBe(true);
             response.resolve(await original("settings", { showKeyboardShortcutIndicators: false }));
             await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-            expect($("settings").getBoundingClientRect().height).toBe(before.height);
+            expect($("settings").open).toBe(false);
             expect(app.editor.view.state).toBe(state);
             expect(dispatch).not.toHaveBeenCalled();
             expect(repaint).not.toHaveBeenCalled();
             expect(disabledChanges).toHaveLength(0);
 
             api.mockImplementation(original);
+            await userEvent.click($("settings-button"));
+            await expect.poll(() => $("settings-status").textContent).toBe("");
             await userEvent.click($("relative-line-numbers"));
             expect(dispatch).toHaveBeenCalledTimes(1);
             expect(app.editor.currentTheme()).toBe(theme);
@@ -654,6 +673,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("save-settings"));
         first.reject(new Error("Disk unavailable"));
         await expect.poll(() => $("settings-status").textContent).toContain("Disk unavailable");
+        expect($("settings").open).toBe(true);
         expect(writes).toBe(1);
         expect($("show-keyboard-shortcut-indicators").checked).toBe(false);
         expect($("relative-line-numbers").checked).toBe(true);
@@ -674,10 +694,13 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("relative-line-numbers"));
         await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        expect($("settings").open).toBe(false);
         const saved = await original("settings");
-        api.mockClear();
         const content = app.editor.readText();
         const selection = app.editor.view.state.selection;
+        await userEvent.click($("settings-button"));
+        await expect.poll(() => $("settings-status").textContent).toBe("");
+        api.mockClear();
         await userEvent.selectOptions($("editor-theme"), "nord");
         await userEvent.click($("relative-line-numbers"));
         await userEvent.click($("show-keyboard-shortcut-indicators"));
@@ -783,6 +806,80 @@ describe("mounted frontend with real CodeMirror", () => {
         expect(prompt.querySelector(".agent-hint kbd").textContent).toMatch(/⇧⏎|Shift\+Enter/);
     });
 
+    it.each([true, false])("selects only Agent prompt text while typing with Vim mode %s", async (vimMode) => {
+        const { app, api } = await fixture();
+        if (!vimMode) {
+            await userEvent.click($("settings-button"));
+            await userEvent.click($("agent-vim-mode"));
+            await userEvent.click($("save-settings"));
+            await expect.poll(() => $("settings").open).toBe(false);
+        }
+        app.editor.focus();
+        await key("{Control>}i{/Control}");
+        const prompt = document.querySelector(".agent-prompt");
+        const inner = prompt.inner;
+        const outerDoc = app.editor.readText();
+        const outerSelection = app.editor.view.state.selection;
+        const isMac = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? "");
+        const modifier = isMac ? "Meta" : "Control";
+        const emptyShortcut = new KeyboardEvent("keydown", {
+            key: "a", [isMac ? "metaKey" : "ctrlKey"]: true, bubbles: true, cancelable: true,
+        });
+        let captured = false;
+        prompt.addEventListener("keydown", (event) => { captured = event.defaultPrevented; }, { capture: true, once: true });
+        inner.contentDOM.dispatchEvent(emptyShortcut);
+        expect(captured).toBe(true);
+        expect(emptyShortcut.defaultPrevented).toBe(true);
+        expect(inner.state.selection.main.from).toBe(0);
+        expect(inner.state.selection.main.to).toBe(0);
+
+        for (const modifiers of [
+            { ctrlKey: true, metaKey: true },
+            { [isMac ? "metaKey" : "ctrlKey"]: true, altKey: true },
+            { [isMac ? "metaKey" : "ctrlKey"]: true, shiftKey: true },
+            { [isMac ? "metaKey" : "ctrlKey"]: true, isComposing: true },
+        ]) {
+            let handled = false;
+            prompt.addEventListener("keydown", (event) => { handled = event.defaultPrevented; }, { capture: true, once: true });
+            inner.contentDOM.dispatchEvent(new KeyboardEvent("keydown", {
+                key: "a", bubbles: true, cancelable: true, ...modifiers,
+            }));
+            expect(handled).toBe(false);
+        }
+        const text = "First prompt line\nSecond prompt line";
+        await key("First prompt line{Shift>}{Enter}{/Shift}Second prompt line");
+        await key(`{${modifier}>}a{/${modifier}}`);
+        expect(inner.state.sliceDoc(inner.state.selection.main.from, inner.state.selection.main.to)).toBe(text);
+        const selection = document.getSelection();
+        expect(inner.contentDOM.contains(selection.anchorNode)).toBe(true);
+        expect(inner.contentDOM.contains(selection.focusNode)).toBe(true);
+        expect(document.activeElement).toBe(inner.contentDOM);
+        expect(app.editor.view.state.selection.eq(outerSelection)).toBe(true);
+
+        await key("Replacement");
+        expect(inner.state.doc.toString()).toBe("Replacement");
+        expect(app.editor.readText()).toBe(outerDoc);
+        expect(app.editor.view.state.selection.eq(outerSelection)).toBe(true);
+
+        await key("{Control>}{Enter}{/Control}");
+        await expect.poll(() => document.querySelector(".agent-prompt")).toBeNull();
+        await userEvent.click(document.querySelector(".review-marker"));
+        await key(`{${modifier}>}a{/${modifier}}Edited batch comment{Enter}`);
+        await expect.poll(() => document.querySelector(".agent-prompt")).toBeNull();
+        expect((await api("review")).items[0].prompt).toBe("Edited batch comment");
+        expect(app.editor.readText()).toBe(outerDoc);
+    });
+
+    it("preserves Vim Normal-mode Ctrl+A in the Agent prompt", async () => {
+        const { app } = await fixture();
+        app.editor.focus();
+        await key("{Control>}i{/Control}1{Escape}0{Control>}a{/Control}");
+        const prompt = document.querySelector(".agent-prompt");
+        expect(prompt.inner.state.doc.toString()).toBe("2");
+        expect(prompt.querySelector(".mode").textContent).toBe("NORMAL");
+        expect(prompt.inner.state.selection.main.empty).toBe(true);
+    });
+
     it("switches Agent Vim mode live without losing text and closes standard prompts with one Escape", async () => {
         const { app, api } = await fixture();
         app.editor.focus();
@@ -801,7 +898,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("agent-vim-mode"));
         await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-        await userEvent.click($("close-settings"));
+        expect($("settings").open).toBe(false);
         expect(document.querySelector(".agent-header .mode").hidden).toBe(true);
         expect(document.querySelector(".agent-input .cm-content").textContent).toBe("Keep this");
         expect(document.querySelector(".agent-cancel kbd").textContent).toBe("Esc");
@@ -821,7 +918,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("agent-vim-mode"));
         await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-        await userEvent.click($("close-settings"));
+        expect($("settings").open).toBe(false);
         expect(document.querySelector(".agent-header .mode").hidden).toBe(false);
         expect(document.querySelector(".agent-input .cm-content").textContent).toContain("Standard text");
         await userEvent.click(document.querySelector(".agent-input .cm-content"));

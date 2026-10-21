@@ -62,6 +62,8 @@ export function editorTheme(name = "system", systemDark = false) {
             ".cm-content": { caretColor: colors.foreground },
             ".cm-gutters": { backgroundColor: colors.gutter, color: colors.muted, borderRight: "none" },
             ".cm-activeLineGutter, .cm-activeLine": { backgroundColor: colors.active },
+            // Selections render beneath line elements, so an opaque active line would hide them.
+            "&.cm-hasSelection .cm-activeLine": { backgroundColor: "transparent" },
             ".cm-cursor": { borderLeftColor: colors.foreground },
             ".cm-fat-cursor": { backgroundColor: colors.foreground, color: colors.background },
             ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: colors.selection },
@@ -69,6 +71,8 @@ export function editorTheme(name = "system", systemDark = false) {
             ".cm-searchMatch": { backgroundColor: colors.selection },
             "&.cm-focused .cm-matchingBracket": { backgroundColor: colors.selection, outline: "none" },
         }, { dark }),
+        EditorView.editorAttributes.compute(["selection"], (state) =>
+            state.selection.ranges.some((range) => !range.empty) ? { class: "cm-hasSelection" } : {}),
         syntaxHighlighting(highlightStyle(colors)),
     ];
 }

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { test } from "vitest";
+import { chromium, webkit } from "playwright";
+import { onTestFinished, test } from "vitest";
 import { DocumentStore, Workspace, startEditorServer, tempDir } from "../helpers/fixtures.mjs";
 import { keyPresser, openEditorPage, until, useBrowser } from "../helpers/browser.mjs";
 
@@ -12,7 +13,7 @@ const content = "First line\nSecond line\nThird line\n";
  * Fresh workspace (example.md, second.md), production server with a stub session, and page.
  * `initial` selects the document the panel starts on.
  */
-async function agentPage({ initial = "example.md" } = {}) {
+async function agentPage({ initial = "example.md", browserInstance = browser(), platform, embedded = false } = {}) {
     const temporary = await tempDir("vim-markdown-agent-");
     const path = join(temporary, "example.md");
     const second = join(temporary, "second.md");
@@ -30,14 +31,22 @@ async function agentPage({ initial = "example.md" } = {}) {
             return `message-${session.messages.length}`;
         },
     });
-    const { page, errors } = await openEditorPage(browser(), entry);
-    const prompt = page.getByRole("textbox", { name: "Agent prompt" });
+    const { page, errors } = await openEditorPage(browserInstance, null);
+    if (platform) await page.addInitScript((value) => {
+        Object.defineProperty(navigator, "platform", { get: () => value });
+        Object.defineProperty(navigator, "userAgentData", { get: () => undefined });
+    }, platform);
+    if (embedded) await page.setContent(`<iframe title="Canvas" style="width: 1100px; height: 760px; border: 0" src="${entry.url}"></iframe>`);
+    else await page.goto(entry.url);
+    const surface = embedded ? page.frameLocator("iframe") : page;
+    await surface.locator(".cm-editor").waitFor();
+    const prompt = surface.getByRole("textbox", { name: "Agent prompt" });
     const keys = keyPresser(page);
     const open = async () => {
         await page.keyboard.press("Control+i");
         await prompt.waitFor();
         assert.equal(await prompt.evaluate((node) => node === document.activeElement), true);
-        assert.equal(await page.locator(".agent-header .mode").innerText(), "INSERT");
+        assert.equal(await surface.locator(".agent-header .mode").innerText(), "INSERT");
     };
     const send = async (text) => {
         await page.keyboard.type(text);
@@ -50,7 +59,7 @@ async function agentPage({ initial = "example.md" } = {}) {
         assert.equal(await readFile(path, "utf8"), content);
         assert.deepEqual(errors, []);
     };
-    return { temporary, path, second, store, session, messages: session.messages, page, prompt, keys, open, send, promptText, finish };
+    return { temporary, path, second, store, session, messages: session.messages, page, surface, prompt, keys, open, send, promptText, finish };
 }
 
 test("agent prompt: cursor line, inline placement, newline, no duplicates and focus restoration", async () => {
@@ -78,6 +87,46 @@ test("agent prompt: cursor line, inline placement, newline, no duplicates and fo
         text: "Second line",
     }]);
     assert.equal(await page.locator(".cm-content").evaluate((node) => node === document.activeElement), true);
+    await finish();
+});
+
+test.each([
+    ["Chromium", "MacIntel", "Meta", chromium],
+    ["Chromium", "Linux x86_64", "Control", chromium],
+    ["Chromium", "Win32", "Control", chromium],
+    ["WebKit", "MacIntel", "Meta", webkit],
+])("%s on %s: Select All replaces only the Agent prompt", async (_name, platform, modifier, engine) => {
+    const instance = await engine.launch({ headless: true });
+    onTestFinished(() => instance.close());
+    const { page, surface, prompt, messages, finish } = await agentPage({ browserInstance: instance, platform, embedded: true });
+    for (const vimMode of [true, false]) {
+        if (!vimMode) {
+            await surface.locator("#settings-button").click();
+            await surface.locator("#agent-vim-mode").uncheck();
+            await surface.locator("#save-settings").click();
+            await until(async () => assert.equal(await surface.locator("#settings").isVisible(), false));
+        }
+        await surface.getByRole("textbox", { name: "Text editor" }).focus();
+        await page.keyboard.press("Control+i");
+        await prompt.waitFor();
+        await page.keyboard.type("First prompt line");
+        await page.keyboard.press("Shift+Enter");
+        await page.keyboard.type("Second prompt line");
+        await page.keyboard.press(`${modifier}+a`);
+        assert.deepEqual(await surface.locator(".agent-prompt").evaluate((form) => {
+            const inner = form.inner;
+            const selection = document.getSelection();
+            return {
+                text: inner.state.sliceDoc(inner.state.selection.main.from, inner.state.selection.main.to),
+                contained: inner.contentDOM.contains(selection.anchorNode) && inner.contentDOM.contains(selection.focusNode),
+                focused: document.activeElement === inner.contentDOM,
+            };
+        }), { text: "First prompt line\nSecond prompt line", contained: true, focused: true });
+        await page.keyboard.type("Replacement prompt");
+        await page.keyboard.press("Enter");
+        await until(async () => assert.equal(await prompt.count(), 0));
+        assert.equal(messages.at(-1).prompt, "Replacement prompt");
+    }
     await finish();
 });
 
@@ -113,7 +162,7 @@ test("Primer prompt and review controls follow live themes without changing the 
     await page.locator("#editor-theme").selectOption("dracula");
     await page.locator("#save-settings").click();
     await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
-    await page.locator("#close-settings").click();
+    assert.equal(await page.locator("#settings").isVisible(), false);
     await until(async () => assert.equal(await scope.getAttribute("data-color-mode"), "dark"));
     assert.equal(await page.locator("html").getAttribute("data-color-mode"), "light");
     await until(async () => assert.equal(await scope.getByRole("button", { name: "Add to batch", exact: true }).evaluate((node) =>

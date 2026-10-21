@@ -36,7 +36,7 @@ async function settingsPage({ content = source, preferences } = {}) {
         await page.locator("#save-settings").click();
         await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
         assert.equal(await page.locator("#cursor").innerText(), originalCursor, "saving settings preserves cursor");
-        await page.locator("#close-settings").click();
+        assert.equal(await page.locator("#settings").isVisible(), false);
         await until(async () => assert.equal(await page.evaluate(() => document.activeElement.id), "settings-button"));
     };
     const settingsButton = page.getByRole("button", { name: "Open settings", exact: true });
@@ -53,7 +53,7 @@ test("Agent panel Vim preference survives reload and standard mode closes with a
     await page.locator("#save-settings").click();
     await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
     assert.equal(JSON.parse(await readFile(settingsFile, "utf8")).agentVimMode, false);
-    await page.locator("#close-settings").click();
+    assert.equal(await page.locator("#settings").isVisible(), false);
     await page.reload();
     const editor = page.locator("#editor > .cm-editor > .cm-scroller > .cm-content");
     await editor.focus();
@@ -128,7 +128,7 @@ test("relative numbers and theme changes persist without resetting mode, cursor,
     await page.locator("#save-settings").click();
     await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
     assert.equal(await page.locator(".cm-editor").evaluate((node) => getComputedStyle(node).backgroundColor), "rgb(40, 42, 54)");
-    await page.locator("#close-settings").click();
+    assert.equal(await page.locator("#settings").isVisible(), false);
     await until(async () => assert.equal((await readFile(settingsFile, "utf8")).includes('"theme": "dracula"'), true));
     await page.locator("#settings-button").click();
     assert.equal(await page.locator("#editor-theme").inputValue(), "dracula");
@@ -155,7 +155,7 @@ test("relative numbers and theme changes persist without resetting mode, cursor,
     assert.deepEqual(errors, []);
 });
 
-test("shortcut changes preview without disk writes and persist only on Save, without flashing the dialog", async () => {
+test("shortcut changes preview without disk writes and close the dialog only after Save succeeds", async () => {
     const { page, errors, settingsFile } = await settingsPage();
     await page.locator("#settings-button").click();
     await until(async () => assert.equal(await page.locator("#settings-status").textContent(), ""));
@@ -185,9 +185,10 @@ test("shortcut changes preview without disk writes and persist only on Save, wit
         await page.locator("#save-settings").click();
         assert.equal(await page.locator("#settings-status").textContent(), "Saving settings...");
         assert.equal(await control.isEnabled(), true);
+        assert.deepEqual(await page.locator("#settings").boundingBox(), before);
         release();
         await until(async () => assert.equal(await page.locator("#settings-status").textContent(), "Settings saved."));
-        assert.deepEqual(await page.locator("#settings").boundingBox(), before);
+        assert.equal(await page.locator("#settings").isVisible(), false);
         assert.deepEqual(await page.evaluate(() => window.settingsMutations), []);
         assert.equal(JSON.parse(await readFile(settingsFile, "utf8")).showKeyboardShortcutIndicators, false);
     } finally {
@@ -263,6 +264,7 @@ test("failed settings saves retain the preview for retry or discard without chan
     await page.locator("#relative-line-numbers").uncheck();
     await page.locator("#save-settings").click();
     await until(async () => assert.match(await page.locator("#settings-status").innerText(), /Settings disk is unavailable/));
+    assert.equal(await page.locator("#settings").isVisible(), true);
     assert.equal(await page.locator("#relative-line-numbers").isChecked(), false);
     assert.equal(await page.locator("#save-settings").isEnabled(), true);
     assert.equal(await page.locator("#save-status").isVisible(), false);
