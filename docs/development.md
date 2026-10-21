@@ -22,6 +22,10 @@ Install dependencies with `npm ci`. After frontend changes, click **Reload canva
 
 ```text
 extension.mjs          SDK discovery entry and provider wiring
+com.github.copilot/
+  extensions/
+    vim-canvas/
+      extension.mjs    Installed plugin entry; imports the root provider wiring
 src/frontend/          Browser application and feature factories
 src/backend/           HTTP transport, routes, delivery, and persistent stores
 src/shared/             Browser/Node-safe theme catalog
@@ -30,6 +34,8 @@ resources/              Bundled welcome document
 assets/                 Generated editor bundle, Primer CSS, and lazy language chunks
 tests/                  unit, integration, browser, e2e, and fixture helpers
 ```
+
+The plugin uses Agent Plugins 1.0 (`$schema` in `plugin.json`). Copilot discovers its canvas from `com.github.copilot/extensions/vim-canvas/extension.mjs`, which imports the root entry so assets and resources still resolve from the installation root. A custom namespace in the manifest's `extensions` map does not register a Copilot extension; the legacy top-level extension path configuration is not used in this format. Keep the production entry separate from `.github/extensions/vim-canvas-dev/extension.mjs`, which is only for repository development.
 
 The frontend uses vanilla DOM and ES modules; `app.js` composes features and `main.js` is the production entry. Inline Agent prompts and batch actions use [Primer CSS](https://primer.style/css), not React; the locally served `primer.css` includes only needed primitives and theme tokens, without a global reset or runtime dependency. New Primer surfaces should use `primer-scope` and matching colour-mode attributes; theme updates must preserve the host's colour-mode attributes.
 

@@ -13,12 +13,5 @@
     "vim",
     "markdown",
     "editor"
-  ],
-  "extensions": {
-    "com.github.davelosert": {
-      "extensions": [
-        "."
-      ]
-    }
-  }
+  ]
 }
