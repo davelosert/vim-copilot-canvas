@@ -1,5 +1,16 @@
 import { basename } from "node:path";
 import { EditorError } from "./errors.mjs";
+import { selectionRange } from "../shared/selection-range.js";
+
+export function requestContext(input, attachments) {
+    if (input.context === undefined) return undefined;
+    const content = input.context;
+    if (typeof content !== "string" || Buffer.byteLength(content) > 2 * 1024 * 1024 ||
+        !attachments.every((attachment) => selectionRange(content, attachment))) {
+        throw new EditorError("invalid_input", "The captured document does not match the request selections.", 400);
+    }
+    return content;
+}
 
 export function buildAttachments(target, selections) {
     if (!Array.isArray(selections) || !selections.length || selections.length > 10000) {

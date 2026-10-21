@@ -4,12 +4,13 @@ export function createScrollSync({ editor, editorContent, preview }) {
     const expected = new Map();
     const positions = new Map(panes.map((pane) => [pane, pane.scrollTop]));
     const sizes = new Map();
-    let enabled = false, active = editor, frame;
+    let enabled = false, active = editor, frame, restoring = false, restorationFrame;
     const range = (pane) => Math.max(0, pane.scrollHeight - pane.clientHeight);
     const visible = (pane) => pane.clientHeight > 0 && pane.clientWidth > 0;
     const size = (pane) => `${pane.clientWidth}:${pane.clientHeight}`;
     const sync = () => {
         frame = undefined;
+        if (restoring) return;
         // A resize frame may precede a scroll event; only stable-size panes represent user movement.
         for (const pane of panes) {
             if (visible(pane) && sizes.get(pane) === size(pane) && Math.abs(pane.scrollTop - positions.get(pane)) >= 1 &&
@@ -33,6 +34,7 @@ export function createScrollSync({ editor, editorContent, preview }) {
     };
     const scroll = (event) => {
         const pane = event.currentTarget;
+        if (restoring) return;
         const target = expected.get(pane);
         expected.delete(pane);
         positions.set(pane, pane.scrollTop);
@@ -45,6 +47,21 @@ export function createScrollSync({ editor, editorContent, preview }) {
     for (const pane of panes) observer.observe(pane);
     observer.observe(editorContent);
     return {
+        preserve() {
+            restoring = true;
+            win.cancelAnimationFrame(restorationFrame);
+            restorationFrame = win.requestAnimationFrame(() => {
+                restorationFrame = win.requestAnimationFrame(() => {
+                    restoring = false;
+                    for (const pane of panes) {
+                        positions.set(pane, pane.scrollTop);
+                        sizes.set(pane, size(pane));
+                        expected.set(pane, pane.scrollTop);
+                    }
+                    refresh();
+                });
+            });
+        },
         document(markdown, { reset = false } = {}) {
             enabled = markdown;
             expected.clear();
@@ -60,6 +77,7 @@ export function createScrollSync({ editor, editorContent, preview }) {
         refresh,
         dispose() {
             win.cancelAnimationFrame(frame);
+            win.cancelAnimationFrame(restorationFrame);
             observer.disconnect();
             for (const pane of panes) pane.removeEventListener("scroll", scroll);
         },

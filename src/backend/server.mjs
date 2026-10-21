@@ -45,7 +45,9 @@ async function readJson(req) {
 export async function listen({ root, routes, devReload }) {
     const token = randomBytes(32).toString("hex");
     let origin;
+    let requests = 0, resolveDrained;
     const server = createServer(async (req, res) => {
+        requests++;
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("Referrer-Policy", "no-referrer");
@@ -88,6 +90,9 @@ export async function listen({ root, routes, devReload }) {
                 error: error.code ?? "editor_error",
                 message: error.message ?? "The editor request failed.",
             });
+        } finally {
+            requests--;
+            if (!requests) resolveDrained?.();
         }
     });
     await new Promise((resolve, reject) => {
@@ -97,10 +102,14 @@ export async function listen({ root, routes, devReload }) {
     origin = `http://127.0.0.1:${server.address().port}`;
     return {
         server, url: `${origin}/#${token}`,
-        close: () => new Promise((resolve, reject) => {
-            server.close((error) => error ? reject(error) : resolve());
-            server.closeIdleConnections();
-        }),
+        close: async () => {
+            await new Promise((resolve, reject) => {
+                server.close((error) => error ? reject(error) : resolve());
+                server.closeIdleConnections();
+            });
+            // An aborted socket can close before its async filesystem operation finishes.
+            if (requests) await new Promise((resolve) => { resolveDrained = resolve; });
+        },
     };
 }
 

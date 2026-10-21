@@ -257,3 +257,57 @@ dialog p, .help-note { font-size: 12px; color: var(--editor-muted); }
   .statusbar > div { gap: 9px; }
   #preview { padding: 18px 24px; }
 }
+/* Document history shares the sidebar's theme and resize behavior. */
+#history-panel { overflow: auto; }
+#history-status, #history-detail { padding: 8px 12px; overflow-wrap: anywhere; }
+#history-status:empty { display: none; }
+#history-list { list-style: none; margin: 0 12px; padding: 0 0 0 12px; border-left: 1px solid var(--editor-border); }
+.history-event { position: relative; padding: 4px 0; }
+.history-event::before { content: ""; position: absolute; left: -17px; top: 16px; width: 8px; height: 8px; border-radius: 50%; background: var(--editor-muted); }
+.history-vim::before { background: var(--editor-success); }
+.history-external::before { background: var(--editor-warning); }
+.history-request::before, .history-batch::before { background: var(--editor-canvas); border: 1px solid var(--editor-accent); border-radius: 2px; box-sizing: border-box; }
+.history-copilot::before { background: var(--editor-success); }
+.history-copilot > button { background: color-mix(in srgb, var(--editor-success) 7%, var(--editor-canvas)); }
+.history-event button { width: 100%; text-align: left; display: grid; gap: 3px; white-space: normal; }
+.history-event-kind { justify-self: start; border: 1px solid var(--editor-border); border-radius: 3px; padding: 1px 4px; font-size: 9px; letter-spacing: .6px; color: var(--editor-muted); }
+.history-request .history-event-kind, .history-batch .history-event-kind { color: var(--editor-accent); border-color: color-mix(in srgb, var(--editor-accent) 45%, var(--editor-border)); }
+.history-copilot .history-event-kind { color: var(--editor-success); background: color-mix(in srgb, var(--editor-success) 12%, transparent); }
+.history-event button[aria-pressed="true"] { background: var(--editor-selection); }
+.history-event time, .history-muted { color: var(--editor-muted); font-size: 11px; }
+#history-detail { border-top: 1px solid var(--editor-border); }
+#history-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.5 var(--font-mono, monospace); }
+#history-detail h3, #history-detail h4 { font-size: 12px; }
+#history-detail details { margin: 8px 0; }
+#history-detail summary { cursor: pointer; }
+.history-current > summary { font-weight: 600; color: var(--editor-accent); }
+.copilot-icon { vertical-align: -3px; margin-right: 5px; flex-shrink: 0; }
+#history-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#history-editor[hidden], #editor[hidden] { display: none; }
+.history-review-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--editor-border); }
+#history-review-diff { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#history-review-diff > .history-muted, #history-review-diff > .history-diff-controls { margin: 6px 12px; }
+.history-inline-diff { flex: 1; min-height: 0; overflow: hidden; }
+.history-inline-diff .cm-mergeControls { white-space: normal; }
+.history-inline-diff .cm-mergeControls button { font: inherit; }
+.history-diff-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+.history-inline-diff .cm-changedLine, .history-inline-diff .cm-insertedLine { background: color-mix(in srgb, var(--editor-success) 12%, transparent); }
+.history-inline-diff .cm-deletedChunk { background: color-mix(in srgb, var(--editor-danger) 12%, transparent); }
+.history-inline-diff .cm-insertedText { background: color-mix(in srgb, var(--editor-success) 25%, transparent); }
+.history-inline-diff .cm-deletedText { background: color-mix(in srgb, var(--editor-danger) 25%, transparent); }
+.history-hunk { margin-bottom: 16px; }
+.history-hunk button { white-space: normal; text-align: left; }
+.history-request-stack { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
+.history-request-item { border: 1px solid var(--editor-border); border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
+.history-request-item > h4 { margin: 0; padding: 10px 12px; background: var(--editor-soft); overflow-wrap: anywhere; }
+.history-request-item > .history-muted { margin: 8px 12px; }
+.history-request-source { max-height: 65vh; overflow: auto; }
+.history-request-selection { background: color-mix(in srgb, var(--editor-accent) 17%, transparent); }
+.history-sent-prompt { margin: 10px 14px; border: 1px solid var(--editor-border); border-radius: 6px; background: var(--editor-canvas); color: var(--editor-text); white-space: normal; font: 12px/1.5 var(--font-sans, sans-serif); }
+.history-sent-prompt-heading { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--editor-border); background: var(--editor-soft); border-radius: 5px 5px 0 0; }
+.history-sent-prompt-heading strong { color: var(--editor-accent); }
+.history-sent-prompt-heading span { color: var(--editor-muted); overflow-wrap: anywhere; }
+.history-sent-prompt pre { margin: 0; padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; user-select: text; }
+.history-outgoing-message { padding: 8px 12px; border-top: 1px solid var(--editor-border); max-height: 25vh; overflow: auto; font-size: 11px; }
+.history-outgoing-message summary { cursor: pointer; }
+.history-outgoing-message pre { white-space: pre-wrap; overflow-wrap: anywhere; }

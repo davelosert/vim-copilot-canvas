@@ -44,10 +44,12 @@ test("marketplace lists the root Agent Plugins package and its discoverable canv
 
 test("installed plugin entry registers the production provider with installation-root assets", async () => {
     vi.resetModules();
-    joinSession.mockResolvedValue({ send });
+    const on = vi.fn();
+    joinSession.mockResolvedValue({ send, sessionId: "plugin-session", on, log: vi.fn() });
     try {
         await import("../../com.github.copilot/extensions/vim-canvas/extension.mjs");
         expect(joinSession).toHaveBeenCalledExactlyOnceWith({ canvases: [canvas] });
+        expect(on).toHaveBeenCalledExactlyOnceWith(expect.any(Function));
         expect(createProvider).toHaveBeenCalledOnce();
         const options = createProvider.mock.lastCall[0];
         expect(options.root).toBe(dirname(fileURLToPath(new URL("../../extension.mjs", import.meta.url))));

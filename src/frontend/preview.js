@@ -57,7 +57,21 @@ export function createPreview({ element, words, readText, loadImage, onRender, o
     };
     element.addEventListener("click", click);
     return {
-        document(snapshot) { name = snapshot.name; path = snapshot.path; clearTimeout(timer); render(); },
+        document(snapshot, { reset = false } = {}) {
+            const top = element.scrollTop;
+            const height = element.scrollHeight - element.clientHeight;
+            const bounds = element.getBoundingClientRect();
+            const visible = !reset && [...element.children].find((child) => child.getBoundingClientRect().bottom > bounds.top);
+            const anchor = visible && { text: visible.textContent, tag: visible.tagName,
+                offset: visible.getBoundingClientRect().top - bounds.top };
+            name = snapshot.name; path = snapshot.path; clearTimeout(timer); render();
+            if (reset) { element.scrollTop = 0; return; }
+            const candidates = anchor && [...element.children].filter((child) =>
+                child.tagName === anchor.tag && child.textContent === anchor.text);
+            if (candidates?.length === 1) {
+                element.scrollTop += candidates[0].getBoundingClientRect().top - bounds.top - anchor.offset;
+            } else element.scrollTop = height > 0 ? (top / height) * (element.scrollHeight - element.clientHeight) : top;
+        },
         edited() { clearTimeout(timer); if (isMarkdown(name)) timer = setTimeout(render, 100); },
         render,
         dispose() { disposed = true; clearTimeout(timer); element.removeEventListener("click", click); },

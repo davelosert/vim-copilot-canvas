@@ -1,6 +1,6 @@
 import { EditorError } from "./errors.mjs";
 import { composeReview, summarize } from "./review-store.mjs";
-import { buildAttachments, createDelivery, validPrompt } from "./agent-delivery.mjs";
+import { buildAttachments, createDelivery, validPrompt, requestContext } from "./agent-delivery.mjs";
 import { readImage } from "./images.mjs";
 
 /**
@@ -11,6 +11,28 @@ import { readImage } from "./images.mjs";
 export function createRoutes({ store, workspace, document, reviews, settings, sendMessage }) {
     const state = { activePath: document.path };
     const deliver = createDelivery(sendMessage);
+    const sendRecorded = async ({ type, prompt, items, deliveryId }) => {
+        for (const item of items) await load(item.path);
+        const request = await store.history.prepare({ id: deliveryId, type, prompt, items });
+        let messageId = request.messageId;
+        if (request.status === "prepared" && !request.fresh) {
+            throw new EditorError("delivery_uncertain", "This request may already have been sent. Check the conversation before sending again.", 409);
+        }
+        if (request.status !== "sent") {
+            try {
+                messageId = await deliver({ prompt, attachments: items.flatMap((item) => item.attachments) });
+            } catch (error) {
+                await store.history.failed(request.id);
+                throw error;
+            }
+        }
+        try { await store.history.delivered(request.id, messageId); }
+        catch (error) {
+            throw new EditorError("history_finalize_failed",
+                `Sent to Copilot, but history could not be finalized: ${error.message}. Retry the same request to finalize without resending.`, 500);
+        }
+        return messageId;
+    };
     const review = async () => ({ items: summarize(await reviews.list(workspace.root)) });
     const load = async (path) => store.open(await workspace.resolve(path ?? state.activePath));
     const snapshot = async (doc) => ({ ...(await store.snapshot(doc)), activePath: state.activePath });
@@ -48,6 +70,23 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
         ["/api/tree", (query) => workspace.list(query.get("dir") ?? undefined)],
         ["/api/settings", () => settings.read()],
         ["/api/review", () => review()],
+        ["/api/history", async (query) => {
+            const target = await load(query.get("path") ?? undefined);
+            await store.snapshot(target);
+            return store.history.list(target.path);
+        }],
+        ["/api/history/entry", async (query) => {
+            const target = await load(query.get("path") ?? undefined);
+            const entry = await store.history.detail(target.path, query.get("id"));
+            for (const request of entry.items ? [entry] : entry.requests ?? []) {
+                for (const item of request.items) {
+                    if (!workspace.contains(item.path)) {
+                        throw new EditorError("outside_root", "This batch includes files outside the explorer root.", 403);
+                    }
+                }
+            }
+            return entry;
+        }],
     ]);
 
     const post = new Map([
@@ -59,14 +98,15 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
             state.activePath = target.path;
             return snapshot(target);
         })],
-        ["/api/agent", selectionInput(async (_target, _input, prompt, attachments) =>
-            ({ messageId: await deliver({ prompt, attachments }) }))],
+        ["/api/agent", selectionInput(async (target, input, prompt, attachments) =>
+            ({ messageId: await sendRecorded({ type: "request", prompt, deliveryId: input.deliveryId,
+                items: [{ path: target.path, prompt, attachments, context: requestContext(input, attachments) }] }) }))],
         ["/api/settings", (input) => settings.update(input)],
         ["/api/review/add", selectionInput(async (target, input, prompt, attachments) => {
             const label = typeof input.label === "string" && input.label.length <= 300 ? input.label : attachments[0].displayName;
             await reviews.add(workspace.root, {
                 path: target.path, label, prompt, attachments,
-                selections: attachments.map(({ selection }) => selection),
+                selections: attachments.map(({ selection }) => selection), context: requestContext(input, attachments),
             });
             return review();
         })],
@@ -84,12 +124,12 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
             await reviews.remove(workspace.root, input.ids);
             return review();
         })],
-        ["/api/review/send", objectInput(async () => {
+        ["/api/review/send", objectInput(async (input) => {
             const items = await reviews.list(workspace.root);
             if (!items.length) throw new EditorError("review_empty", "The batch has no requests.", 400);
-            const messageId = await deliver({
-                prompt: composeReview(items),
-                attachments: items.flatMap((item) => item.attachments),
+            const messageId = await sendRecorded({
+                type: "batch", prompt: composeReview(items), deliveryId: input.deliveryId,
+                items: items.map(({ path, prompt, label, attachments, id, context }) => ({ path, prompt, label, attachments, id, context })),
             });
             await reviews.remove(workspace.root, items.map((item) => item.id));
             return { messageId, ...(await review()) };

@@ -130,6 +130,77 @@ test("review edits persist without changing identity or frozen attachments and r
     await expect(edit({ id: original.id, prompt: "Too late" })).rejects.toMatchObject({ code: "review_not_found" });
 });
 
+test("sent requests retain the frozen full document locally without adding it to the SDK payload", async ({ onTestFinished }) => {
+    const messages = [];
+    const { routes, store, document } = await fixture(onTestFinished, async (message) => { messages.push(message); return "frozen"; });
+    const input = { path: document.path, prompt: "Revise One", selections: [selection()], context: "One\nTwo\n", deliveryId: "frozen-source" };
+    await store.update(document, "Newer live draft\n", document.revision);
+    await routes.post.get("/api/agent")(input);
+    expect(messages).toEqual([{ prompt: "Revise One", attachments: buildAttachments(document, input.selections), mode: "immediate" }]);
+    const request = await store.history.detail(document.path, input.deliveryId);
+    expect(request.snapshots).toEqual([{ path: document.path, content: "One\nTwo\n" }]);
+    expect(request.items[0].snapshot).toBe(0);
+    await routes.post.get("/api/agent")(input);
+    expect(messages).toHaveLength(1);
+    expect(document.content).toBe("Newer live draft\n");
+});
+
+test("batch editing, restart and later document changes preserve each original request context", async ({ onTestFinished }) => {
+    const messages = [];
+    const f = await fixture(onTestFinished, async (message) => { messages.push(message); return "batch-context"; });
+    const add = f.routes.post.get("/api/review/add");
+    await add({ path: "a.md", prompt: "First", selections: [selection()], context: "One\nTwo\n" });
+    await add({ path: "b.md", prompt: "Second", selections: [selection("B")], context: "B\n" });
+    const [first] = await f.reviews.list(f.workspace.root);
+    await f.routes.post.get("/api/review/edit")({ id: first.id, prompt: "Edited first" });
+    await f.store.update(f.document, "Different source", f.document.revision);
+    const restored = new ReviewStore(f.reviews.directory);
+    const routes = createRoutes({ ...f, reviews: restored, sendMessage: async (message) => { messages.push(message); return "batch-context"; } });
+    await routes.post.get("/api/review/send")({ deliveryId: "batch-source" });
+    const request = await f.store.history.detail(f.document.path, "batch-source");
+    expect(request.snapshots).toEqual([{ path: f.document.path, content: "One\nTwo\n" }, { path: join(f.project, "b.md"), content: "B\n" }]);
+    expect(request.items.map((item) => item.prompt)).toEqual(["Edited first", "Second"]);
+    expect(messages[0].attachments.map((item) => item.text)).toEqual(["One", "B"]);
+    expect(messages[0]).not.toHaveProperty("context");
+    expect(messages[0]).not.toHaveProperty("snapshots");
+});
+
+test("invalid captured context is rejected without sending or adding a pending batch comment", async ({ onTestFinished }) => {
+    const messages = [];
+    const { routes, reviews, workspace } = await fixture(onTestFinished, async (message) => { messages.push(message); return "unexpected"; });
+    for (const route of ["/api/agent", "/api/review/add"]) {
+        for (const context of [null, 1, "Wrong text", "One" + "x".repeat(2 * 1024 * 1024)]) {
+            await expect(routes.post.get(route)({ path: "a.md", prompt: "Revise", selections: [selection()], context }))
+                .rejects.toMatchObject({ code: "invalid_input", status: 400 });
+        }
+    }
+    expect(messages).toEqual([]);
+    expect(await reviews.list(workspace.root)).toEqual([]);
+});
+
+test("change-detail request context obeys the same explorer-root guard as standalone requests", async ({ onTestFinished }) => {
+    const { routes, store, document, project } = await fixture(onTestFinished);
+    const original = store.history.detail.bind(store.history);
+    store.history.detail = async () => ({
+        type: "change", before: "One", after: "Two", requests: [{
+            items: [{ path: join(project, "..", "outside.md"), prompt: "Private context" }],
+        }],
+    });
+    await expect(routes.get.get("/api/history/entry")(new URLSearchParams({ path: document.path, id: "change" })))
+        .rejects.toMatchObject({ code: "outside_root", status: 403 });
+    store.history.detail = original;
+});
+
+test("pending context storage has a byte limit for additions and edits without losing saved requests", async ({ onTestFinished }) => {
+    const { reviews, workspace } = await fixture(onTestFinished);
+    const context = "x".repeat(20 * 1024 * 1024 - 5000);
+    const [item] = await reviews.add(workspace.root, { context, prompt: "Small" });
+    await expect(reviews.add(workspace.root, { context: "x".repeat(6000) })).rejects.toMatchObject({ code: "review_full", status: 413 });
+    await expect(reviews.edit(workspace.root, item.id, "x".repeat(6000))).rejects.toMatchObject({ code: "review_full", status: 413 });
+    expect((await reviews.list(workspace.root))[0].prompt).toBe("Small");
+    expect(await reviews.remove(workspace.root, [item.id])).toEqual([]);
+});
+
 test("HTTP transport keeps guards, assets, limits and error codes", async ({ onTestFinished }) => {
     const { store, workspace, document, base } = await fixture(onTestFinished);
     const entry = await startServer({ store, workspace, document, root: installation, settings: new SettingsStore(join(base, "s.json")) });

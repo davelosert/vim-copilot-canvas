@@ -154,7 +154,7 @@ export function createAgent({ getPath, reviewCount, send, addToReview, editRevie
                 inner.dispatch({ effects: readOnly.reconfigure(EditorState.readOnly.of(true)) });
                 for (const control of actions.querySelectorAll("button")) control.disabled = true;
                 status.textContent = kind === "edit" ? "Saving comment..." : kind === "delete" ? "Deleting comment..." : kind === "review" ? "Adding to batch..." : "Sending to Agent...";
-                const input = { path: this.context.path, selections: this.context.selections, prompt };
+                const input = { path: this.context.path, selections: this.context.selections, prompt, context: this.context.content };
                 try {
                     if (kind === "edit") await editReview({ id: this.item.id, prompt });
                     else if (kind === "delete") await removeReview(this.item.id);
@@ -343,7 +343,7 @@ export function createAgent({ getPath, reviewCount, send, addToReview, editRevie
         open(view) {
             if (disposed) return;
             if (focusPrompt(view)) return;
-            const widget = new Prompt(captureContext(view.state, getPath()));
+            const widget = new Prompt({ ...captureContext(view.state, getPath()), content: view.state.sliceDoc() });
             const at = view.state.doc.lineAt(view.state.selection.main.head).to;
             showPrompt(view, widget, at);
         },

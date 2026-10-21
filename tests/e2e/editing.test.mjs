@@ -165,6 +165,151 @@ test("external edits automatically replace the open document without a warning",
     assert.deepEqual(errors, []);
 });
 
+test("long Markdown external updates retain the source viewport, cursor and preview and expose a history jump", async () => {
+    const content = Array.from({ length: 250 }, (_, index) => `## Heading ${index}\n\nUnique paragraph ${index}.\n\n`).join("");
+    const { path, page, errors, command } = await editorPage({ content });
+    await command("300");
+    const source = page.locator("#editor .cm-scroller");
+    await until(async () => {
+        const metrics = await source.evaluate((node) => ({ top: node.scrollTop, height: node.scrollHeight,
+            client: node.clientHeight, cursor: document.querySelector("#cursor").textContent }));
+        assert.ok(metrics.top > 3000, JSON.stringify(metrics));
+    });
+
+    const cursorBefore = await page.locator("#cursor").innerText();
+    const topBefore = await source.evaluate((node) => node.scrollTop);
+    await until(async () => assert.ok(await page.locator("#preview").evaluate((node) => node.scrollTop) > 1000));
+    await writeFile(path, `## Inserted at top\n\nExternal new text.\n\n${content}`);
+    await until(async () => assert.match(await page.locator("#preview").innerText(), /Inserted at top/));
+    await until(async () => assert.ok(await source.evaluate((node) => node.scrollTop) >= topBefore - 10));
+    assert.equal(await page.locator("#cursor").innerText(), cursorBefore.replace("300", "304"));
+    assert.ok(await page.locator("#preview").evaluate((node) => node.scrollTop) > 1000);
+    const preservedTop = await source.evaluate((node) => node.scrollTop);
+    const preservedCursor = await page.locator("#cursor").innerText();
+    await page.locator("#history-tab").click();
+    await page.getByRole("button", { name: /External edit/ }).click();
+    await page.getByRole("textbox", { name: "Inline history diff" }).waitFor();
+    await page.getByRole("button", { name: "Return to editing" }).click();
+    await until(async () => assert.ok(Math.abs(await source.evaluate((node) => node.scrollTop) - preservedTop) < 20));
+    assert.equal(await page.locator("#cursor").innerText(), preservedCursor);
+    assert.ok(await page.locator("#preview").evaluate((node) => node.scrollTop) > 1000);
+    await page.getByRole("button", { name: /External edit/ }).click();
+    await page.getByRole("button", { name: "Jump to current text", exact: true }).first().click();
+    await until(async () => assert.match(await page.locator("#cursor").innerText(), /^Ln 1,/));
+    assert.deepEqual(errors, []);
+});
+
+test("native history diff reverts a block and all remaining changes, persists them, and supports Vim undo", async () => {
+    const before = "# Heading\n\nOld first block\n\nKeep one\nKeep two\nKeep three\nKeep four\nKeep five\n\nOld second block\n";
+    const after = before.replace("Old first block", "New first block").replace("Old second block", "New second block");
+    const { path, page, errors } = await editorPage({ content: before });
+    page.on("dialog", (dialog) => dialog.accept());
+    await writeFile(path, after);
+    await until(async () => assert.match(await page.locator("#editor .cm-content").innerText(), /New first block/));
+    await page.locator("#history-tab").click();
+    await page.getByRole("button", { name: /External edit/ }).click();
+    await page.getByRole("textbox", { name: "Inline history diff" }).waitFor();
+    assert.equal(await page.locator("#history-detail .cm-editor").count(), 0);
+    assert.equal(await page.locator("#editor").isVisible(), false);
+    assert.equal(await page.locator(".editor-pane #history-editor").isVisible(), true);
+    const paneBounds = await page.locator(".editor-pane").boundingBox();
+    const diffBounds = await page.locator("#history-review-diff .cm-editor").boundingBox();
+    assert.ok(diffBounds.height > paneBounds.height / 2);
+    assert.ok(Math.abs(diffBounds.width - paneBounds.width) < 4);
+    await page.getByRole("button", { name: "Revert this change", exact: true }).first().click();
+    await until(async () => {
+        const text = await readFile(path, "utf8");
+        assert.match(text, /Old first block/);
+        assert.match(text, /New second block/);
+    });
+    // Polling refreshes the timeline without replacing the partially reverted review.
+    await page.waitForTimeout(2500);
+    await page.getByRole("button", { name: "Revert all changes in this entry" }).click();
+    await until(async () => assert.equal(await readFile(path, "utf8"), before));
+    await page.getByRole("button", { name: "Return to editing" }).click();
+    await page.locator("#editor .cm-content").click();
+    await page.keyboard.press("u");
+    await until(async () => {
+        const text = await readFile(path, "utf8");
+        assert.match(text, /Old first block/);
+        assert.match(text, /New second block/);
+    });
+    assert.deepEqual(errors, []);
+});
+
+test("whole-entry history revert restores disk content and refuses older snapshots after new edits", async () => {
+    const before = "# Original\n\nEarlier text.\n";
+    const { path, page, errors } = await editorPage({ content: before });
+    page.on("dialog", (dialog) => dialog.accept());
+    await writeFile(path, "# Rewritten\n\nNew text.\n");
+    await until(async () => assert.match(await page.locator("#editor .cm-content").innerText(), /New text/));
+    await page.locator("#history-tab").click();
+    await page.getByRole("button", { name: /External edit/ }).click();
+    await page.getByRole("button", { name: "Revert all changes in this entry" }).click();
+    await until(async () => assert.equal(await readFile(path, "utf8"), before));
+    await page.getByRole("button", { name: /External edit/ }).click();
+    assert.equal(await page.getByRole("button", { name: "Revert all changes in this entry" }).isDisabled(), true);
+    assert.deepEqual(errors, []);
+});
+
+test("preview-only external updates preserve the visible paragraph instead of returning to the top", async () => {
+    const content = Array.from({ length: 180 }, (_, index) => `## Section ${index}\n\nDistinct paragraph ${index}.\n\n`).join("");
+    const { path, page, errors } = await editorPage({ content });
+    await page.locator('button[data-layout="preview"]').click();
+    const preview = page.locator("#preview");
+    await preview.evaluate((node) => { node.scrollTop = 4500; });
+    const visibleText = () => preview.evaluate((node) => [...node.children].find((child) =>
+        child.getBoundingClientRect().bottom > node.getBoundingClientRect().top)?.textContent);
+    const before = await visibleText();
+    await writeFile(path, `## New section\n\nAdded outside the editor.\n\n${content}`);
+    await until(async () => assert.match(await preview.innerText(), /Added outside/));
+    await until(async () => assert.equal(await visibleText(), before));
+    assert.ok(await preview.evaluate((node) => node.scrollTop) > 4000);
+    assert.deepEqual(errors, []);
+});
+
+test("history revert cancellation and disk races never overwrite newer file content", async () => {
+    const { path, page, errors } = await editorPage({ content: "# Before\n" });
+    const after = "# After\n";
+    await writeFile(path, after);
+    await until(async () => assert.match(await page.locator("#editor .cm-content").innerText(), /After/));
+    await page.locator("#history-tab").click();
+    await page.getByRole("button", { name: /External edit/ }).click();
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await page.getByRole("button", { name: "Revert all changes in this entry" }).click();
+    assert.equal(await readFile(path, "utf8"), after);
+    page.once("dialog", async (dialog) => {
+        await writeFile(path, "# Newer external revision\n");
+        await dialog.accept();
+    });
+    await page.getByRole("button", { name: "Revert all changes in this entry" }).click();
+    await until(async () => assert.match(await page.locator("#history-review-diff").innerText(), /file has changed since this revision/i));
+    assert.equal(await readFile(path, "utf8"), "# Newer external revision\n");
+    assert.deepEqual(errors, []);
+});
+
+test("undo after an external insertion keeps the external change", async () => {
+    const { path, page, errors } = await editorPage();
+    await page.keyboard.press("i");
+    await page.keyboard.type("Local ");
+    await page.keyboard.press("Escape");
+    await until(async () => assert.match(await readFile(path, "utf8"), /^Local /));
+    const saved = await readFile(path, "utf8");
+    await writeFile(path, `External line\n${saved}`);
+    await until(async () => assert.match(await page.locator(".cm-content").innerText(), /^External line/));
+    await until(async () => assert.equal(await page.locator("#editor .cm-content").getAttribute("contenteditable"), "true"));
+    assert.equal(await page.locator("#mode").innerText(), "NORMAL");
+    assert.equal(await page.locator("#editor .cm-content").evaluate((node) => node === document.activeElement), true);
+    await page.keyboard.press("u");
+    await until(async () => {
+        assert.doesNotMatch(await page.locator("#editor .cm-content").innerText(), /Local /);
+        const text = await readFile(path, "utf8");
+        assert.match(text, /^External line\n# Hello/);
+        assert.doesNotMatch(text, /Local /);
+    });
+    assert.deepEqual(errors, []);
+});
+
 test("file explorer: vim keys, mouse, isolation and :e", async () => {
     const { path, second, nested, store, page, errors, keys, command } = await editorPage();
     const rows = () => page.locator("#tree .tree-row");

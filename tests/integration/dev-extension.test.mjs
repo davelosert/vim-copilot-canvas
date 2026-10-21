@@ -38,9 +38,11 @@ test("dev entry waits for session storage and uses the current checkout", async 
     });
     await Promise.resolve();
     expect(opened).toBe(false);
-    resolveSession({ workspacePath, send: vi.fn() });
+    const on = vi.fn();
+    resolveSession({ workspacePath, sessionId: "dev-session", send: vi.fn(), on, log: vi.fn() });
     await loading;
     const { url } = await opening;
+    expect(on).toHaveBeenCalledExactlyOnceWith(expect.any(Function));
     const action = (name, input) => canvas.actions.find((value) => value.name === name).handler({ instanceId: "dev", input });
     expect((await action("get_document")).path).toBe(join(await realpath(root), "README.md"));
     expect((await action("list_files")).entries.some(({ name }) => name === "src")).toBe(true);

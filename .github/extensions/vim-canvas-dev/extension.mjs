@@ -1,9 +1,11 @@
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import { createProvider, createVimCanvas } from "../../../src/backend/canvas-provider.mjs";
+import { observeAgentHistory } from "../../../src/backend/agent-history.mjs";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const identity = { canvasId: "vim-markdown-dev", displayName: "Vim Copilot Canvas (Dev)" };
@@ -22,11 +24,15 @@ async function getProvider() {
     if (!session.workspacePath) {
         throw new CanvasError("dev_storage_unavailable", "The dev canvas requires session workspace storage.");
     }
-    return provider ??= createProvider({
+    if (provider) return provider;
+    provider = createProvider({
         root, sdk, ...identity, devReload,
         artifactsDir: join(session.workspacePath, "vim-canvas-dev"),
+        historyDir: join(process.env.COPILOT_HOME ?? join(homedir(), ".copilot"), "extensions", "vim-canvas-dev", "artifacts", "history"),
         sendMessage: (message) => session.send(message),
     });
+    observeAgentHistory(session, provider.store);
+    return provider;
 }
 
 // Declare the shared schema now; bind its handlers once session storage is available.

@@ -4,16 +4,18 @@ import { basename, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EditorError } from "./errors.mjs";
 import { MAX_BYTES, atomicWrite, diskText, writeNew } from "./files.mjs";
+import { HistoryStore } from "./history-store.mjs";
 
 export const DEFAULT_WELCOME_PATH = fileURLToPath(new URL("../../resources/welcome.md", import.meta.url));
 const hash = (text) => createHash("sha256").update(text).digest("hex");
 
 export class DocumentStore {
-    constructor(artifacts, { welcomePath = DEFAULT_WELCOME_PATH } = {}) {
+    constructor(artifacts, { welcomePath = DEFAULT_WELCOME_PATH, history = new HistoryStore(join(artifacts, "history")) } = {}) {
         this.artifacts = artifacts;
         this.welcomePath = welcomePath;
         this.documents = new Map();
         this.locks = new Map();
+        this.history = history;
     }
 
     async open(filePath) {
@@ -54,6 +56,10 @@ export class DocumentStore {
                 content: draft ? draft.content : baseContent,
                 revision: draft?.revision ?? randomUUID(),
             };
+            await this.history.observe(path, baseContent);
+            if (draft && draft.content !== draft.baseContent) {
+                await this.history.local(path, draft.baseContent, draft.content, draft.revision);
+            }
             this.documents.set(path, document);
             return document;
         });
@@ -77,10 +83,11 @@ export class DocumentStore {
         }));
     }
 
-    async state(document) {
+    async state(document, { adopt = true } = {}) {
         const disk = await diskText(document.path);
+        await this.history.observe(document.path, disk);
         let conflict = hash(disk) !== hash(document.baseContent);
-        if (conflict && document.content === document.baseContent) {
+        if (adopt && conflict && document.content === document.baseContent) {
             document.content = disk;
             document.baseContent = disk;
             document.revision = randomUUID();
@@ -112,6 +119,7 @@ export class DocumentStore {
         return this.locked(document, async () => {
             this.checkRevision(document, revision);
             const next = { ...document, content, revision: randomUUID() };
+            await this.history.local(document.path, document.content, content, next.revision);
             await this.persist(next);
             Object.assign(document, next);
             return this.state(document);
@@ -122,15 +130,19 @@ export class DocumentStore {
         return this.locked(document, async () => {
             this.checkRevision(document, revision);
             const disk = await diskText(document.path);
+            await this.history.observe(document.path, disk);
             if (hash(disk) !== hash(document.baseContent)) {
                 throw new EditorError("disk_conflict", "The file changed on disk. Save is blocked; copy your draft or reload the disk version.");
             }
             const info = await stat(document.path);
+            await this.history.saving(document.path, document.content);
             await atomicWrite(document.path, document.content, info.mode & 0o777);
+            await this.history.saved(document.path, document.content);
             document.baseContent = document.content;
             document.revision = randomUUID();
             await this.persist(document);
-            return this.state(document);
+            // A save response must describe our write, not silently acknowledge an intervening external edit.
+            return this.state(document, { adopt: false });
         });
     }
 
@@ -138,6 +150,7 @@ export class DocumentStore {
         return this.locked(document, async () => {
             this.checkRevision(document, revision);
             const disk = await diskText(document.path);
+            await this.history.observe(document.path, disk);
             if (hash(disk) !== diskHash) {
                 throw new EditorError("disk_conflict", "The file changed again. Refresh its status before reloading.");
             }
