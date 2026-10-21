@@ -71,6 +71,8 @@ Run `npm run changeset`, select `vim-copilot-canvas`, choose a patch, minor, or 
 
 On pushes to `main`, the **Release** workflow creates or updates a release PR, which applies pending changesets and updates the version files and changelog. Do not bump these versions independently. Release preparation also runs a clean frontend build; the Changesets action commits any updated assets and deleted stale chunks in the same release PR as the version metadata.
 
+Release preparation labels minor changelog sections **Features & Minor Changes** and patch sections **Fixes & Patch Changes**. Major sections remain **Major Changes**. The formatter runs after `changeset version`, including when running `npm run version:release` locally; continue choosing the normal major, minor, or patch changeset types.
+
 CI requires changesets only on contributor pull requests, compared with their target branch. The same-repository `changeset-release/main` PR is exempt because versioning consumes its changesets; pushes to `main` do not require a new changeset either. Release metadata validation, asset checks, and tests still run for every PR and push to `main`.
 
 Once the release PR passes **Tests**, merge it. The next release run creates a GitHub release. Rerun **Actions > Release** on `main` to retry an interrupted run.

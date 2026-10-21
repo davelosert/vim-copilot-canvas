@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "changeset": "changeset",
-    "version:release": "changeset version && node scripts/release-metadata.mjs sync && npm install --package-lock-only --ignore-scripts && npm run build",
+    "version:release": "changeset version && node scripts/format-changelog.mjs && node scripts/release-metadata.mjs sync && npm install --package-lock-only --ignore-scripts && npm run build",
     "release:check": "node scripts/release-metadata.mjs check",
     "release": "npm run build:check && changeset publish",
     "build": "node scripts/build.mjs",
