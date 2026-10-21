@@ -31,13 +31,15 @@ src/backend/           HTTP transport, routes, delivery, and persistent stores
 src/shared/             Browser/Node-safe theme catalog
 public/                 HTML shell and stylesheet
 resources/              Bundled welcome document
-assets/                 Generated editor bundle, Primer CSS, and lazy language chunks
+assets/                 Generated editor and Markdown worker bundles, Primer CSS, and lazy language chunks
 tests/                  unit, integration, browser, e2e, and fixture helpers
 ```
 
 The plugin uses Agent Plugins 1.0 (`$schema` in `plugin.json`). Copilot discovers its canvas from `com.github.copilot/extensions/vim-canvas/extension.mjs`, which imports the root entry so assets and resources still resolve from the installation root. A custom namespace in the manifest's `extensions` map does not register a Copilot extension; the legacy top-level extension path configuration is not used in this format. Keep the production entry separate from `.github/extensions/vim-canvas-dev/extension.mjs`, which is only for repository development.
 
 The frontend uses vanilla DOM and ES modules; `app.js` composes features and `main.js` is the production entry. Inline Agent prompts and batch actions use [Primer CSS](https://primer.style/css), not React; the locally served `primer.css` includes only needed primitives and theme tokens, without a global reset or runtime dependency. New Primer surfaces should use `primer-scope` and matching colour-mode attributes; theme updates must preserve the host's colour-mode attributes.
+
+Markdown previews are parsed and sanitized on the canvas server: the frontend posts the source to `/api/render`, and the backend renders it in a shared Node `worker_threads` worker (bundled to `assets/server/markdown-worker.mjs`, because installed plugins have no `node_modules`) so the extension's event loop stays free. Browser Web Workers were abandoned because the app's WebKit webview silently kills them after parsing large documents, leaving the preview empty with no error. The preview keeps one request in flight, coalesces pending edits, and discards stale results after edits, document switches, or hiding the pane; render failures surface in the existing notice UI, and a crashed worker is restarted on the next request. DOM updates preserve common unchanged top-level blocks; Edit-only mode skips preview work entirely, and hidden outlines defer parsing until reopened.
 
 The document controller manages edits, serialized saves, file switching, reloads, polling, and conflicts independently of the UI. It reloads the open document when disk content changes, replacing unsynced edits, and temporarily makes the editor read-only during reload. Backend routes use persistent stores; shared modules must remain safe to import in both browser and Node.js environments. Dispose independently mounted apps after each test.
 

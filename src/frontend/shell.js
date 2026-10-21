@@ -1,19 +1,22 @@
 import { isMarkdown } from "./markdown.js";
 
 /** DOM-only presentation and shell interactions. Document persistence lives elsewhere. */
-export function createShell({ elements: e, window, editor, readText, onReload, onExplorer, onError }) {
+export function createShell({ elements: e, window, editor, readText, onReload, onExplorer, onError, onLayout, onSidebar }) {
     const handlers = new AbortController();
     const listen = (element, type, fn) => element.addEventListener(type, fn, { signal: handlers.signal });
     let markdownLayout = "split", markdown = false, disposed = false;
     const layout = () => {
         const selected = markdown ? markdownLayout : "edit";
         e.workspace.dataset.layout = selected;
+        e.words.hidden = !markdown || selected === "edit";
+        onLayout?.(selected);
         for (const button of e.layouts) button.setAttribute("aria-pressed", String(button.dataset.layout === selected));
         editor.measure();
     };
     const setSidebar = (open) => {
         e.shell.dataset.sidebar = open ? "open" : "closed";
         e.toggleExplorer.setAttribute("aria-pressed", String(open));
+        onSidebar?.(open);
         editor.measure();
     };
     const sidebarOpen = () => e.shell.dataset.sidebar === "open";

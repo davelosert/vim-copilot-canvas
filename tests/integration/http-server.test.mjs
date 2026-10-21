@@ -3,6 +3,7 @@ import { readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "vitest";
 import { ReviewStore } from "../../src/backend/review-store.mjs";
+import { wordCount } from "../../src/frontend/markdown.js";
 import { DocumentStore, Workspace, apiClient, documentFixture, startEditorServer, workspaceTree } from "../helpers/fixtures.mjs";
 
 const fixture = (content) => documentFixture({ content, prefix: "vim-markdown-test-" });
@@ -22,6 +23,7 @@ test("HTTP endpoints require token and same origin; assets are local", async () 
     const asset = await fetch(new URL("/editor.js", url));
     assert.equal(asset.status, 200);
     assert.match(asset.headers.get("content-security-policy"), /img-src data:;/);
+    assert.equal((await fetch(new URL("/server/markdown-worker.mjs", url))).status, 403);
     const primer = await fetch(new URL("/primer.css", url));
     assert.equal(primer.status, 200);
     assert.match(primer.headers.get("content-type"), /^text\/css/);
@@ -60,6 +62,26 @@ async function agentFixture() {
     const post = (body = input, headers = {}) => call("agent", body, headers);
     return { store, document, workspace, session, input, post };
 }
+
+test("render endpoint parses and sanitizes Markdown on the server and validates input", async () => {
+    const { store, document } = await fixture();
+    const workspace = await Workspace.create({ filePath: document.path, ignore: ["artifacts"] });
+    const entry = await startEditorServer({ store, workspace, document });
+    const { call } = apiClient(entry);
+    assert.equal((await call("render", { source: "# Title" }, { "X-Editor-Token": "" })).status, 403);
+    const source = "# Title\n\n<script>alert(1)</script>\n\n" + "Paragraph text.\n\n".repeat(20000);
+    const [first, second] = await Promise.all([call("render", { source }), call("render", { source: "**Bold** words" })]);
+    assert.equal(first.status, 200);
+    const rendered = await first.json();
+    assert.match(rendered.html, /^<h1 id="user-content-title">Title<\/h1>/);
+    assert.doesNotMatch(rendered.html, /<script/);
+    assert.equal(rendered.count, wordCount(source));
+    assert.deepEqual(await second.json(), { html: "<p><strong>Bold</strong> words</p>\n", count: 2 });
+    for (const invalid of [{}, { source: 1 }, []]) {
+        const response = await call("render", invalid);
+        assert.equal(response.status, 400);
+    }
+});
 
 test("Agent endpoint rejects unauthenticated, cross-origin and invalid requests", async () => {
     const { workspace, session, input, post } = await agentFixture();

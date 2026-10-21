@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { mountApp } from "../../src/frontend/app.js";
 import { createExplorer } from "../../src/frontend/explorer.js";
+import { renderMarkdown, wordCount } from "../../src/frontend/markdown.js";
 import "../../src/frontend/primer.css";
 
 const [markup, stylesheet] = await Promise.all(["/index.html", "/editor.css"].map(async (url) => (await fetch(url)).text()));
@@ -38,6 +39,7 @@ function fakeApi() {
     const tree = () => ({ root: "/work", rootName: "work", entries: [...files.keys()].map((path) => ({ path, name: path.split("/").pop(), type: "file" })) });
     const api = vi.fn(async (path, input) => {
         if (path === "document" || path.startsWith("document?")) return { ...current };
+        if (path === "render") return { html: renderMarkdown(input.source), count: wordCount(input.source) };
         if (path === "settings") {
             if (input) settings = { ...settings, ...input };
             return { ...settings };
@@ -91,6 +93,7 @@ async function fixture({ dev = false, ...options } = {}) {
     mounted.push(app);
     await app.ready;
     await expect.poll(() => document.querySelectorAll(".tree-row").length).toBe(2);
+    await expect.poll(() => document.querySelector("#preview h1")?.textContent).toBe("Title");
     return { app, ...backend };
 }
 const $ = (id) => document.getElementById(id);
@@ -208,6 +211,46 @@ describe("mounted frontend with real CodeMirror", () => {
             held.resolve();
             observer.disconnect();
         }
+    });
+
+    it("suspends preview and outline work in Edit-only mode and refreshes when reopened", async () => {
+        const { app, api, files } = await fixture();
+        await userEvent.click(document.querySelector('[data-layout="edit"]'));
+        expect($("words").hidden).toBe(true);
+        const renders = () => api.mock.calls.filter(([path]) => path === "render").length;
+        const before = renders();
+        const mutations = [];
+        const observer = new MutationObserver((records) => mutations.push(...records));
+        for (const id of ["preview", "outline"]) observer.observe($(id), { childList: true, subtree: true, attributes: true, characterData: true });
+        try {
+            files.set("/work/a.md", longMarkdown);
+            await app.controller.reload();
+            for (let index = 0; index < 20; index++) app.editor.view.dispatch({ changes: { from: 0, insert: "x" } });
+            await app.controller.save();
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(renders()).toBe(before);
+            mutations.length = 0;
+            app.editor.view.dispatch({ changes: { from: app.editor.view.state.doc.length, insert: "\n\n# Latest" } });
+            await app.controller.save();
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(mutations).toHaveLength(0);
+            expect(renders()).toBe(before);
+            await userEvent.click(document.querySelector('[data-layout="split"]'));
+            expect($("words").hidden).toBe(false);
+            await expect.poll(() => $("preview").querySelector("h1")?.textContent).toBe("Latest");
+            expect(renders()).toBe(before + 1);
+            await showSidebar();
+            await userEvent.click($("outline-tab"));
+            expect($("outline").lastElementChild.querySelector(".tree-label").textContent).toBe("Latest");
+            await userEvent.click($("toggle-explorer"));
+            mutations.length = 0;
+            app.editor.view.dispatch({ changes: { from: app.editor.view.state.doc.length, insert: "\n\n## While closed" } });
+            await app.controller.save();
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(mutations.some((record) => $("outline").contains(record.target))).toBe(false);
+            await showSidebar();
+            expect($("outline").lastElementChild.querySelector(".tree-label").textContent).toBe("While closed");
+        } finally { observer.disconnect(); }
     });
 
     it("shows Markdown headings in a separate outline tab and jumps to their exact source lines", async () => {
@@ -337,6 +380,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await app.controller.reload();
         const source = app.editor.view.scrollDOM, preview = $("preview");
         await expect.poll(() => source.scrollHeight).toBeGreaterThan(source.clientHeight);
+        await expect.poll(() => preview.querySelectorAll("h2").length).toBe(100);
         expect(preview.scrollHeight).toBeGreaterThan(preview.clientHeight);
         expect(source.scrollHeight).not.toBe(preview.scrollHeight);
         await nextFrames();
@@ -358,6 +402,7 @@ describe("mounted frontend with real CodeMirror", () => {
         files.set("/work/a.md", longMarkdown);
         await app.controller.reload();
         const source = app.editor.view.scrollDOM, preview = $("preview");
+        await expect.poll(() => preview.querySelectorAll("h2").length).toBe(100);
         await nextFrames();
         scrollToProgress(preview, 0.6);
         await expect.poll(() => Math.abs(scrollProgress(source) - scrollProgress(preview))).toBeLessThan(0.005);
@@ -380,6 +425,7 @@ describe("mounted frontend with real CodeMirror", () => {
         files.set("/work/a.md", longMarkdown);
         await app.controller.reload();
         const source = app.editor.view.scrollDOM, preview = $("preview");
+        await expect.poll(() => preview.querySelectorAll("h2").length).toBe(100);
         await nextFrames();
         scrollToProgress(source, 0.8);
         await expect.poll(() => Math.abs(scrollProgress(preview) - scrollProgress(source))).toBeLessThan(0.005);
@@ -393,6 +439,7 @@ describe("mounted frontend with real CodeMirror", () => {
 
         files.set("/work/a.md", "# Short");
         await app.controller.reload();
+        await expect.poll(() => preview.querySelector("h1")?.textContent).toBe("Short");
         await nextFrames();
         expect(preview.scrollTop).toBe(0);
         expect(source.scrollTop).toBe(0);
