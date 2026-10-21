@@ -1,5 +1,5 @@
 import { basicSetup } from "codemirror";
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState, Compartment, Transaction } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { LanguageDescription } from "@codemirror/language";
@@ -8,6 +8,7 @@ import { vim, getCM } from "@replit/codemirror-vim";
 import { editorTheme, editorThemePalette } from "./theme.js";
 import { isMarkdown } from "./markdown.js";
 import { markdownLinks } from "./markdown-links.js";
+import { changesBetween, normalizeText } from "../shared/change-map.js";
 
 export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor, onMode, onLanguage, onError, systemDark = false }) {
     const theme = new Compartment(), numbering = new Compartment(), language = new Compartment();
@@ -76,6 +77,11 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
     return {
         get view() { return view; },
         readText: () => view?.state.sliceDoc() ?? "",
+        replaceText(content) {
+            if (!view || disposed) return;
+            view.dispatch({ changes: changesBetween(view.state.doc.toString(), normalizeText(content)),
+                userEvent: "input.history-revert" });
+        },
         currentTheme,
         themePalette: () => editorThemePalette(settings.theme, systemDark),
         applyDocument(snapshot, { kind }) {
@@ -89,14 +95,21 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
                     view.setState(state(snapshot));
                     attachVim();
                 } else {
-                    const { anchor, head } = view.state.selection.main;
+                    const changes = changesBetween(view.state.doc.toString(), normalizeText(snapshot.content));
+                    const top = view.lineBlockAtHeight(view.scrollDOM.scrollTop);
+                    const offset = view.scrollDOM.scrollTop - top.top;
+                    const left = view.scrollDOM.scrollLeft;
+                    const anchor = changes.mapPos(top.from, 1);
                     view.dispatch({
-                        changes: { from: 0, to: view.state.doc.length, insert: snapshot.content },
+                        changes,
+                        selection: view.state.selection.map(changes),
                         effects: lineBreaks.reconfigure(EditorState.lineSeparator.of(snapshot.content.includes("\r\n") ? "\r\n" : "\n")),
+                        annotations: Transaction.addToHistory.of(false),
                     });
-                    // Full replacement maps the cursor to 0; keep it where the user was instead.
-                    const length = view.state.doc.length;
-                    view.dispatch({ selection: { anchor: Math.min(anchor, length), head: Math.min(head, length) } });
+                    view.requestMeasure({
+                        read: () => view.lineBlockAt(anchor).top + offset,
+                        write: (scrollTop) => { view.scrollDOM.scrollTop = scrollTop; view.scrollDOM.scrollLeft = left; },
+                    });
                 }
             } finally { applying = false; }
             configureLanguage(snapshot);
@@ -124,6 +137,11 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
         setEditable(value) {
             isEditable = value;
             if (view && !disposed) view.dispatch({ effects: editable.reconfigure([EditorView.editable.of(value), EditorState.readOnly.of(!value)]) });
+        },
+        setReadOnly(value) {
+            if (view && !disposed) view.dispatch({ effects: editable.reconfigure([
+                EditorView.editable.of(isEditable), EditorState.readOnly.of(value || !isEditable),
+            ]) });
         },
         focus() { if (!disposed) view?.focus(); },
         measure() { if (!disposed) view?.requestMeasure(); },

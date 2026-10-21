@@ -167,7 +167,7 @@ describe("document ownership and serialized persistence", () => {
         f.controller.dispose();
     });
 
-    it("silently reloads the disk version after an autosave conflict and still permits switching", async () => {
+    it("captures edits typed during an autosave conflict before reloading disk and switching", async () => {
         const entered = deferred(), result = deferred();
         const f = fixture();
         f.api.save.mockImplementationOnce(() => { entered.resolve(); return result.promise; });
@@ -179,7 +179,7 @@ describe("document ownership and serialized persistence", () => {
         f.edit("recovery");
         result.reject(Object.assign(new Error("disk changed"), { code: "disk_conflict" }));
         await expect(f.controller.open("/work/b.md")).resolves.toBe(true);
-        expect(f.api.draft.mock.calls.map(([input]) => input.content)).toEqual(["first"]);
+        expect(f.api.draft.mock.calls.map(([input]) => input.content)).toEqual(["first", "recovery"]);
         expect(f.api.save).toHaveBeenCalledTimes(1);
         expect(f.api.reload).toHaveBeenCalledWith({
             path: "/work/a.md", revision: "r1", diskHash: "external-disk",

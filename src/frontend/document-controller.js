@@ -3,7 +3,8 @@ const conflict = () => Object.assign(new Error("The file or draft changed while 
 /** Sole owner of document snapshots, local generations, and serialized writes.
  * readText reads the live buffer; onDocument must apply text synchronously.
  */
-export function createDocumentController({ api, readText, onState = () => {}, onDocument = () => {}, onPoll = async () => {} }) {
+export function createDocumentController({ api, readText, onState = () => {}, onDocument = () => {},
+    onPoll = async () => {}, onReloading = () => {} }) {
     let current = null;
     let observedDiskHash = null;
     let localVersion = 0;
@@ -56,14 +57,22 @@ export function createDocumentController({ api, readText, onState = () => {}, on
     }
     async function reloadChangedDisk(latest) {
         if (latest.diskHash === observedDiskHash && !latest.conflict) return false;
+        onReloading(true);
         try {
+            if (pending()) {
+                await flushDraft();
+                latest = await api.document(current.path);
+            }
+            const version = localVersion;
             const replacement = await api.reload({
                 path: current.path, revision: latest.revision, diskHash: latest.diskHash,
             });
+            if (version !== localVersion) throw conflict();
             if (!disposed) apply(replacement, "replace");
         } catch (reason) {
             if (reason.code !== "disk_conflict" && reason.code !== "draft_conflict") throw reason;
-        }
+            if (pending()) throw reason;
+        } finally { onReloading(false); }
         return true;
     }
     async function flushDraft({ drain = true } = {}) {
@@ -97,6 +106,7 @@ export function createDocumentController({ api, readText, onState = () => {}, on
                         if (!snapshot.conflict) observedDiskHash = snapshot.diskHash;
                     } catch (reason) {
                         if (reason.code === "disk_conflict") {
+                            await flushDraft();
                             const latest = await api.document(current.path);
                             if (disposed) return;
                             if (await reloadChangedDisk(latest)) return;
@@ -170,6 +180,7 @@ export function createDocumentController({ api, readText, onState = () => {}, on
             emit();
         }),
         poll: () => enqueue(async () => {
+            if (!blocked && pending()) await flushDraft();
             const versionAtPollStart = localVersion;
             let snapshot = await api.document(current.path);
             if (disposed) return;

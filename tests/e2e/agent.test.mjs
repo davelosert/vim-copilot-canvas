@@ -5,6 +5,7 @@ import { chromium, webkit } from "playwright";
 import { onTestFinished, test } from "vitest";
 import { DocumentStore, Workspace, startEditorServer, tempDir } from "../helpers/fixtures.mjs";
 import { keyPresser, openEditorPage, until, useBrowser } from "../helpers/browser.mjs";
+import { createAgentHistory } from "../../src/backend/agent-history.mjs";
 
 const browser = useBrowser();
 const content = "First line\nSecond line\nThird line\n";
@@ -59,7 +60,7 @@ async function agentPage({ initial = "example.md", browserInstance = browser(), 
         assert.equal(await readFile(path, "utf8"), content);
         assert.deepEqual(errors, []);
     };
-    return { temporary, path, second, store, session, messages: session.messages, page, surface, prompt, keys, open, send, promptText, finish };
+    return { temporary, path, second, store, session, messages: session.messages, page, surface, prompt, keys, open, send, promptText, finish, errors };
 }
 
 test("agent prompt: cursor line, inline placement, newline, no duplicates and focus restoration", async () => {
@@ -87,6 +88,85 @@ test("agent prompt: cursor line, inline placement, newline, no duplicates and fo
         text: "Second line",
     }]);
     assert.equal(await page.locator(".cm-content").evaluate((node) => node === document.activeElement), true);
+    await finish();
+});
+
+test("Copilot edits are visually distinct from sent requests, whose prompts stay in the main editor", async () => {
+    const { path, store, page, open, send, errors } = await agentPage();
+    await open();
+    await send("Rewrite the first line");
+    const tracker = createAgentHistory({ store, sessionId: "test-session" });
+    const emit = (type, data) => tracker.handle({ type, data, timestamp: new Date().toISOString() });
+    await emit("user.message", { messageId: "message-1", turnId: "turn-1" });
+    await emit("tool.execution_start", { toolCallId: "tool-1", toolName: "apply_patch", turnId: "turn-1" });
+    await writeFile(path, content.replace("First line", "Rewritten first line"));
+    await emit("tool.execution_complete", {
+        toolCallId: "tool-1", turnId: "turn-1", success: true, fileEdits: [{ path, kind: "edit" }],
+    });
+    await page.locator("#history-tab").click();
+    await page.getByRole("button", { name: /Copilot file write/ }).click();
+    await page.getByRole("textbox", { name: "Inline history diff" }).waitFor();
+    await page.locator("#history-review-diff .history-sent-prompt").waitFor();
+    assert.match(await page.locator("#history-review-diff .history-sent-prompt").innerText(), /Rewrite the first line/);
+    assert.equal(await page.locator("#history-editor").isVisible(), true);
+    assert.equal(await page.locator("#history-detail .cm-editor").count(), 0);
+    assert.match(await page.locator("#history-detail").innerText(), /snapshot may also include concurrent edits/);
+    assert.equal(await page.locator("#history-list .history-copilot").count(), 1);
+    assert.equal(await page.locator("#history-list .history-request").count(), 1);
+    assert.match(await page.locator("#history-list .history-copilot .history-event-kind").innerText(), /EDIT/);
+    assert.match(await page.locator("#history-list .history-request .history-event-kind").innerText(), /REQUEST/);
+    assert.doesNotMatch(await page.locator("#history-panel").textContent(), /Rewrite the first line|Same agent turn/);
+    await page.getByRole("button", { name: /Sent to Copilot/ }).click();
+    await page.getByRole("textbox", { name: "Historical request source" }).waitFor();
+    assert.match(await page.locator(".history-sent-prompt").innerText(), /Rewrite the first line/);
+    assert.match(await page.locator("#history-review-diff .cm-line").first().innerText(), /First line/);
+    assert.doesNotMatch(await page.locator("#history-panel").textContent(), /Rewrite the first line|Same agent turn/);
+    await page.getByRole("button", { name: "Return to editing" }).click();
+    await writeFile(path, "Unrelated external edit\n");
+    await until(async () => assert.match(await page.locator("#editor .cm-content").innerText(), /Unrelated external edit/));
+    await page.getByRole("button", { name: /External edit/ }).click();
+    assert.doesNotMatch(await page.locator("#history-panel").textContent(), /Same agent turn/);
+    assert.deepEqual(errors, []);
+});
+
+test("individual requests and multi-file batches persist in the file history after sending and reloading", async () => {
+    const { path, second, messages, page, open, send, keys, finish } = await agentPage();
+    await open(); await send("Explain first line");
+    await open();
+    await page.keyboard.type("Improve first file");
+    await page.keyboard.press("Control+Enter");
+    await until(async () => assert.equal(await page.locator(".agent-prompt").count(), 0));
+    await page.keyboard.type(":e second.md");
+    await page.keyboard.press("Enter");
+    await until(async () => assert.match(await page.locator("#filepath").innerText(), /second.md$/));
+    await open();
+    await page.keyboard.type("Improve second file");
+    await page.keyboard.press("Control+Enter");
+    await until(async () => assert.equal(await page.locator(".agent-prompt").count(), 0));
+    await page.locator("#review-send").click();
+    await until(async () => assert.equal(messages.length, 2));
+    await until(async () => assert.equal(await page.locator("#review").isVisible(), false));
+    await page.locator("#history-tab").click();
+    await page.getByRole("button", { name: /Sent batch/ }).click();
+    await until(async () => assert.equal(await page.locator(".history-sent-prompt").count(), 2));
+    assert.match(await page.locator(".history-sent-prompt").nth(0).innerText(), /Improve first file/);
+    assert.match(await page.locator(".history-sent-prompt").nth(1).innerText(), /Improve second file/);
+    assert.doesNotMatch(await page.locator("#history-panel").textContent(), /Improve second file|Improve first file/);
+    assert.equal(await page.locator("#history-review-diff select").count(), 0);
+    assert.equal(await page.locator("#filepath").innerText(), second);
+    await page.reload();
+    await page.locator(".cm-editor").waitFor();
+    await page.locator("#history-tab").click();
+    await page.getByRole("button", { name: /Sent batch/ }).waitFor();
+    await keys("Escape");
+    await page.locator("#editor .cm-content").click();
+    await page.keyboard.type(":e example.md");
+    await page.keyboard.press("Enter");
+    await until(async () => assert.match(await page.locator("#filepath").innerText(), /example.md$/));
+    await page.getByRole("button", { name: /Sent to Copilot/ }).click();
+    await until(async () => assert.match(await page.locator(".history-sent-prompt").innerText(), /Explain first line/));
+    assert.match(await page.locator("#history-review-diff .cm-line").first().innerText(), /First line/);
+    assert.equal(messages.length, 2);
     await finish();
 });
 
@@ -124,7 +204,8 @@ test.each([
         }), { text: "First prompt line\nSecond prompt line", contained: true, focused: true });
         await page.keyboard.type("Replacement prompt");
         await page.keyboard.press("Enter");
-        await until(async () => assert.equal(await prompt.count(), 0));
+        await until(async () => assert.equal(await prompt.count(), 0,
+            await surface.locator(".agent-status").allTextContents()));
         assert.equal(messages.at(-1).prompt, "Replacement prompt");
     }
     await finish();

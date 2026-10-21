@@ -11,6 +11,7 @@ import { createSettings } from "./settings.js";
 import { createShell } from "./shell.js";
 import { createScrollSync } from "./scroll-sync.js";
 import { isMarkdown } from "./markdown.js";
+import { createHistory } from "./history.js";
 
 /** Compose one panel. The synchronous handle permits disposal even during startup. */
 export function mountApp({ root = document, window: win = root.ownerDocument?.defaultView ?? root.defaultView,
@@ -23,7 +24,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         return element;
     };
     const elements = (names) => Object.fromEntries(Object.entries(names).map(([key, id]) => [key, $(id)]));
-    let disposed = false, interval, controller, shell, review, commands, scrollSync, outline;
+    let disposed = false, interval, controller, shell, review, commands, scrollSync, outline, history;
     let sidebarView = "files";
     const handlers = new AbortController();
     const listen = (element, type, fn) => element.addEventListener(type, fn, { signal: handlers.signal });
@@ -35,10 +36,23 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         return mode === "dark" || mode === "light" ? mode === "dark" : darkQuery.matches;
     };
     const save = () => safe(controller.save());
+    const deliveryIds = new Map();
+    const recordedApi = async (path, input) => {
+        if (path !== "agent" && path !== "review/send") return api(path, input);
+        const signature = JSON.stringify([path, input]);
+        if (!deliveryIds.has(signature)) {
+            const bytes = win.crypto.getRandomValues(new Uint8Array(16));
+            deliveryIds.set(signature, Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(""));
+        }
+        const result = await api(path, { ...input, deliveryId: deliveryIds.get(signature) });
+        deliveryIds.delete(signature);
+        void history?.refresh();
+        return result;
+    };
     const agent = createAgent({
         getPath: () => controller.getState().current.path,
         reviewCount: () => review.count(),
-        send: (input) => api("agent", input),
+        send: (input) => recordedApi("agent", input),
         addToReview: async (input) => review.set(await api("review/add", input)),
         editReview: async (input) => review.set(await api("review/edit", input)),
         removeReview: async (id) => review.set(await api("review/remove", { ids: [id] })),
@@ -86,8 +100,10 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             scope.dataset.colorMode = dark ? "dark" : "light";
         }
         agent.updateTheme();
+        history?.theme();
     };
     const open = async (path, { focusEditor = true } = {}) => {
+        history?.closeReview();
         let opened = await controller.open(path);
         // Ask only after the queued operation observes the conflict, not from a stale UI snapshot.
         if (!disposed && !opened && controller.getState().blocked &&
@@ -97,7 +113,11 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         if (!disposed && opened && focusEditor) editor.focus();
         return opened;
     };
-    const focusExplorer = () => { shell.setSidebar(true); (sidebarView === "files" ? explorer : outline).focus(); };
+    const focusExplorer = () => {
+        shell.setSidebar(true);
+        ({ files: explorer, outline, history })[sidebarView].focus();
+        if (sidebarView === "history") void history.refresh();
+    };
     shell = createShell({
         elements: {
             ...elements({
@@ -127,7 +147,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     });
     review = createReview({
         elements: elements({ bar: "review", count: "review-count", list: "review-list", send: "review-send", discard: "review-discard", toggle: "review-toggle", status: "agent-status" }),
-        api, confirm, onError: report,
+        api: recordedApi, confirm, onError: report,
         onMarkers: (items) => {
             if (disposed || !editor.view) return;
             if (items === null) review.markers(controller.getState().current.path);
@@ -153,9 +173,49 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         onLeave: () => shell.focusEditor(),
         onHide: () => { shell.setSidebar(false); editor.focus(); },
     });
-    const sidebarViews = ["files", "outline"];
+    history = createHistory({
+        list: $("history-list"), detail: $("history-detail"), status: $("history-status"),
+        review: elements({ panel: "history-editor", title: "history-review-title", diff: "history-review-diff", close: "history-review-close" }),
+        onReview: () => {
+            scrollSync?.preserve();
+            $("editor").hidden = true;
+            shell.revealSource();
+            if (win.matchMedia("(max-width: 700px)").matches) {
+                shell.setSidebar(false);
+                $("history-review-close").focus();
+            }
+        },
+        onCloseReview: () => { scrollSync?.preserve(); $("editor").hidden = false; editor.measure(); },
+        api, readText: editor.readText, onError: report, onOpen: (path) => open(path),
+        onJump: (line) => { history.closeReview(); shell.revealSource(); editor.jumpTo(line); shell.focusEditor(); },
+        onLeave: () => { history.closeReview(); shell.focusEditor(); },
+        theme: editor.currentTheme,
+        canRevert: (path, expected) => {
+            const state = controller.getState();
+            return state.current?.path === path && !state.blocked && !state.current.conflict &&
+                editor.readText() === expected;
+        },
+        onRevert: async (path, expected, content) => {
+            if (!confirm("Revert the selected historical changes in the current file? This saves automatically and can be undone in the editor.")) return false;
+            await controller.save();
+            await controller.poll();
+            const state = controller.getState();
+            if (state.current.path !== path || state.blocked || state.current.conflict || editor.readText() !== expected) {
+                throw new Error("The file has changed since this revision. No historical changes were reverted.");
+            }
+            editor.replaceText(content);
+            await controller.save();
+            const saved = controller.getState();
+            if (saved.current.path !== path || saved.current.conflict || saved.blocked || saved.dirty || editor.readText() !== content) {
+                throw new Error("The file changed or could not be saved during the revert. Review the current file and history.");
+            }
+            return true;
+        },
+    });
+    const sidebarViews = ["files", "outline", "history"];
     const selectSidebar = (view) => {
         sidebarView = view;
+        history.activate(view === "history");
         for (const name of sidebarViews) {
             const selected = name === view;
             $(`${name}-tab`).setAttribute("aria-selected", String(selected));
@@ -168,8 +228,9 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         const tab = $(`${view}-tab`);
         listen(tab, "click", () => selectSidebar(view));
         listen(tab, "keydown", (event) => {
-            const next = { ArrowLeft: sidebarViews[1 - sidebarViews.indexOf(view)], ArrowRight: sidebarViews[1 - sidebarViews.indexOf(view)],
-                Home: "files", End: "outline" }[event.key];
+            const index = sidebarViews.indexOf(view);
+            const next = { ArrowLeft: sidebarViews[(index + sidebarViews.length - 1) % sidebarViews.length],
+                ArrowRight: sidebarViews[(index + 1) % sidebarViews.length], Home: "files", End: "history" }[event.key];
             if (next) {
                 event.preventDefault();
                 selectSidebar(next);
@@ -200,8 +261,10 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             open: (input) => api("open", input), reload: (input) => api("reload", input),
         },
         readText: editor.readText, onState: (state) => shell.state(state),
-        onPoll: () => review.refresh(),
+        onReloading: (value) => editor.setReadOnly(value),
+        onPoll: async () => { await Promise.all([review.refresh(), history.refresh()]); },
         onDocument: (snapshot, options) => {
+            if (options.kind !== "switch") scrollSync?.preserve();
             editor.applyDocument(snapshot, options);
             scrollSync ??= createScrollSync({
                 editor: editor.view.scrollDOM, editorContent: editor.view.contentDOM, preview: $("preview"),
@@ -209,8 +272,9 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             scrollSync.document(isMarkdown(snapshot.name), { reset: options.kind === "switch" });
             commands.attach();
             shell.document(snapshot);
-            preview.document(snapshot);
+            preview.document(snapshot, { reset: options.kind === "switch" });
             outline.document(snapshot);
+            history.document(snapshot);
             review.markers(snapshot.path);
             if (options.kind === "switch") safe(explorer.reveal(snapshot.path));
         },
@@ -285,7 +349,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             win.clearInterval(interval);
             handlers.abort(); observer.disconnect();
             darkQuery.removeEventListener("change", updateTheme);
-            controller.dispose(); commands.dispose(); explorer.dispose(); outline.dispose(); preferences.dispose();
+            controller.dispose(); commands.dispose(); explorer.dispose(); outline.dispose(); history.dispose(); preferences.dispose();
             review.dispose(); preview.dispose(); shell.dispose();
             scrollSync?.dispose();
             editor.dispose(); agent.dispose();

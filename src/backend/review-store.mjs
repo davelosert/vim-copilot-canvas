@@ -5,6 +5,11 @@ import { atomicWrite } from "./files.mjs";
 import { EditorError } from "./errors.mjs";
 
 const MAX_ITEMS = 200;
+function checkSize(items) {
+    if (Buffer.byteLength(JSON.stringify(items)) > 20 * 1024 * 1024) {
+        throw new EditorError("review_full", "The batch and its saved document context exceed 20 MiB. Reduce the batch before adding or expanding requests.", 413);
+    }
+}
 
 // Pending agent review comments, persisted per explorer root so they survive reloads.
 export class ReviewStore {
@@ -56,7 +61,9 @@ export class ReviewStore {
                 Object.assign(error, { code: "review_full", status: 409 });
                 throw error;
             }
-            return [...items, { id: randomUUID(), createdAt: new Date().toISOString(), ...item }];
+            const next = [...items, { id: randomUUID(), createdAt: new Date().toISOString(), ...item }];
+            checkSize(next);
+            return next;
         });
     }
 
@@ -70,6 +77,7 @@ export class ReviewStore {
             const index = items.findIndex((item) => item.id === id);
             if (index < 0) throw new EditorError("review_not_found", "This batch comment no longer exists.", 404);
             items[index] = { ...items[index], prompt };
+            checkSize(items);
             return items;
         });
     }

@@ -2,6 +2,7 @@ import { basename, dirname, join } from "node:path";
 import { DocumentStore } from "./document-store.mjs";
 import { startServer as defaultStartServer } from "./server.mjs";
 import { Workspace, resolveInitialTarget } from "./workspace.mjs";
+import { HistoryStore } from "./history-store.mjs";
 
 export const CANVAS_ID = "vim-markdown";
 
@@ -153,9 +154,11 @@ export function createVimCanvas({ createCanvas, CanvasError, store, panels,
  * @param {string} [options.displayName]
  * @param {string} [options.artifactsDir] External draft/review storage directory.
  */
-export function createProvider({ root, sdk, sendMessage, startServer, canvasId, displayName, artifactsDir, devReload }) {
+export function createProvider({ root, sdk, sendMessage, startServer, canvasId, displayName, artifactsDir, historyDir, devReload }) {
     const paths = installationPaths(root, artifactsDir);
-    const store = new DocumentStore(paths.artifacts, { welcomePath: paths.welcome });
+    const store = new DocumentStore(paths.artifacts, {
+        welcomePath: paths.welcome, history: new HistoryStore(historyDir ?? join(paths.artifacts, "history")),
+    });
     const panels = createPanels({ store, root, sendMessage, startServer, devReload });
     const canvas = createVimCanvas({ createCanvas: sdk.createCanvas, CanvasError: sdk.CanvasError, store, panels, canvasId, displayName });
     return { paths, store, panels, canvas };

@@ -8,6 +8,7 @@ export function createPreview({ element, words, readText, renderSource, loadImag
     let timer;
     let disposed = false;
     let dirty = false, busy = false, queued = false;
+    let resetPosition = false;
     let blocks = [];
     function prepare(block) {
         const { node } = block;
@@ -48,6 +49,12 @@ export function createPreview({ element, words, readText, renderSource, loadImag
         }
     }
     function patch(html) {
+        const top = element.scrollTop;
+        const height = element.scrollHeight - element.clientHeight;
+        const bounds = element.getBoundingClientRect();
+        const anchorNode = !resetPosition && [...element.children].find((child) => child.getBoundingClientRect().bottom > bounds.top);
+        const anchor = anchorNode && { text: anchorNode.textContent, tag: anchorNode.tagName,
+            offset: anchorNode.getBoundingClientRect().top - bounds.top };
         const template = element.ownerDocument.createElement("template");
         template.innerHTML = html;
         // Keep the original markup for comparisons: image URLs and link attributes change after hydration.
@@ -62,13 +69,23 @@ export function createPreview({ element, words, readText, renderSource, loadImag
         while (end > start && nextEnd > start && blocks[end - 1].html === next[nextEnd - 1].html) {
             next[--nextEnd] = blocks[--end];
         }
-        const anchor = blocks[end]?.node ?? null;
+        const insertionAnchor = blocks[end]?.node ?? null;
         for (let index = start; index < end; index++) blocks[index].node.remove();
         const fragment = element.ownerDocument.createDocumentFragment();
         for (let index = start; index < nextEnd; index++) fragment.append(next[index].node);
-        element.insertBefore(fragment, anchor);
+        element.insertBefore(fragment, insertionAnchor);
         for (let index = start; index < nextEnd; index++) prepare(next[index]);
         blocks = next;
+        if (resetPosition) {
+            element.scrollTop = 0;
+            resetPosition = false;
+        } else {
+            const candidates = anchor && [...element.children].filter((child) =>
+                child.tagName === anchor.tag && child.textContent === anchor.text);
+            if (candidates?.length === 1) {
+                element.scrollTop += candidates[0].getBoundingClientRect().top - bounds.top - anchor.offset;
+            } else element.scrollTop = height > 0 ? (top / height) * (element.scrollHeight - element.clientHeight) : top;
+        }
     }
     const render = async () => {
         clearTimeout(timer);
@@ -108,8 +125,10 @@ export function createPreview({ element, words, readText, renderSource, loadImag
     };
     element.addEventListener("click", click);
     return {
-        document(snapshot) {
+        document(snapshot, { reset = false } = {}) {
             invalidate();
+            resetPosition = resetPosition || reset || path !== snapshot.path;
+            if (resetPosition) element.scrollTop = 0;
             if (path !== snapshot.path || !isMarkdown(snapshot.name)) {
                 element.replaceChildren();
                 blocks = [];

@@ -4,12 +4,13 @@
 
 A [GitHub Copilot App canvas](https://docs.github.com/en/copilot/how-tos/github-copilot-app/working-with-canvas-extensions) for navigating and editing workspace files **Vim-style** with the ability to **directly interact with your Copilot Agent**. It is built on [CodeMirror](https://codemirror.net/) and [@replit's codemirror-vim plugin](https://github.com/replit/codemirror-vim).
 
-## Features
+## Highlights
 
 - **Targeted Agent Assistance:** Select one or more lines in a file and prompt Copilot inline to hand them to the Agent for changes or answers to your questions. You can also **batch changes** before sending them off to the agent. This allows you to make targeted edits with ease.
-- **Premium Markdown Support:** Markdown files come with a synchronized live preview rendering GitHub-flavored Markdown and section navigation, allowing you to read and edit Markdown files easily and quickly.
+- **Markdown Support:** Markdown files come with a synchronized live preview rendering GitHub-flavored Markdown and section navigation, allowing you to read and edit Markdown files easily and quickly.
 - **Vim-Based File Navigation:** Navigate the files in your repository Vim-style in the side pane, so you can easily navigate your entire project.
 - **Direct File Editing:** Unlike traditional Vim, edits go directly to files instead of a separate buffer, so there is no need to save with `:w`.
+- **Document History:** Review grouped Vim edits and external changes in native inline diffs directly in the main editor, with guarded per-change or whole-entry reverts. Distinguish SDK-confirmed Copilot writes from sent requests, and reopen requests with their original source and prompts inline. Jump to surviving text without losing your reading position when files change externally.
 - **Theming & Settings:** Choose from all of CodeMirror's supported themes and choose different settings to individualize the experience.
 - **Open Links:** Open links from the Markdown editor with **Cmd+click** on macOS or **Ctrl+click** on Windows/Linux. Ordinary clicks still position the cursor.
 
@@ -17,7 +18,7 @@ See the [feature guide](docs/features.md) for usage details, [get started](docs/
 
 ## Development
 
-Use Node.js 24 or 26. Install dependencies and run the test suite:
+Use Node.js 26. Install dependencies and run the test suite:
 
 ```sh
 npm ci

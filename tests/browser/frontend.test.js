@@ -110,6 +110,305 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    it.each(["change", "batch"])("keeps the previous review visible until the next %s record is ready", async (type) => {
+        const { api, app } = await fixture();
+        await showSidebar();
+        const original = api.getMockImplementation(), pending = deferred();
+        api.mockImplementation((path, input) => {
+            if (path.startsWith("history?")) return { version: "h1", entries: [
+                { id: "first", type: "change", source: "external", time: new Date().toISOString() },
+                { id: "next", type, source: "vim", time: new Date().toISOString() },
+            ] };
+            if (path.startsWith("history/entry?")) return path.endsWith("id=first")
+                ? { type: "change", before: "Old", after: "First review" } : pending.promise;
+            return original(path, input);
+        });
+        await userEvent.click($("history-tab"));
+        await expect.poll(() => $("history-list").querySelector('[data-id="first"]')).toBeTruthy();
+        await userEvent.click($("history-list").querySelector('[data-id="first"]'));
+        await expect.poll(() => $("history-review-diff").textContent).toContain("First review");
+        const previous = $("history-review-diff").querySelector(".cm-editor");
+        const live = app.editor.readText();
+        const mutations = [];
+        const observer = new MutationObserver((records) => mutations.push(...records));
+        observer.observe($("editor"), { attributes: true, attributeFilter: ["hidden"] });
+        observer.observe($("history-editor"), { attributes: true, attributeFilter: ["hidden"] });
+        try {
+            await showSidebar();
+            await userEvent.click($("history-list").querySelector('[data-id="next"]'));
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            expect($("history-editor").hidden).toBe(false);
+            expect($("editor").hidden).toBe(true);
+            expect($("history-review-diff").querySelector(".cm-editor")).toBe(previous);
+            expect($("history-editor").getAttribute("aria-busy")).toBe("true");
+            pending.resolve(type === "change" ? { type, before: "Old", after: "Next review" } : {
+                type, prompt: "Next review", items: [{ path: "/work/a.md", prompt: "Next review", attachments: [{
+                    text: "Selection", selection: { start: { line: 0, character: 0 }, end: { line: 0, character: 9 } },
+                }] }],
+            });
+            await expect.poll(() => $("history-review-diff").textContent).toContain("Next review");
+            expect($("history-review-diff").querySelector(".cm-editor")).not.toBe(previous);
+            expect($("history-editor").hasAttribute("aria-busy")).toBe(false);
+            expect(mutations).toHaveLength(0);
+            expect(app.editor.readText()).toBe(live);
+        } finally { observer.disconnect(); }
+    });
+
+    it("main-area history review never replaces the live buffer and stays closed after returning to editing", async () => {
+        const { api, app } = await fixture();
+        await showSidebar();
+        const original = api.getMockImplementation();
+        const current = app.editor.readText();
+        let version = 1;
+        api.mockImplementation(async (path, input) => {
+            if (path.startsWith("history?")) return { version, entries: [
+                { id: "old-edit", type: "change", source: "external", time: new Date().toISOString() },
+            ] };
+            if (path.startsWith("history/entry?")) return { type: "change", before: "# Old\n", after: "# Historical, not current\n" };
+            return original(path, input);
+        });
+        await userEvent.click($("history-tab"));
+        await expect.poll(() => $("history-list").querySelector("button")).toBeTruthy();
+        await userEvent.click($("history-list").querySelector("button"));
+        await expect.poll(() => $("history-review-diff").querySelector(".cm-content")).toBeTruthy();
+        const content = $("history-review-diff").querySelector(".cm-content");
+        content.focus();
+        await key("INVALID");
+        expect(content.textContent).not.toContain("INVALID");
+        expect(app.editor.readText()).toBe(current);
+        expect(app.controller.getState().dirty).toBe(false);
+        expect([...$("history-review-diff").querySelectorAll("button")].find((button) =>
+            button.textContent === "Revert all changes in this entry").disabled).toBe(true);
+        await key("{Escape}");
+        expect($("history-editor").hidden).toBe(true);
+        version++;
+        await app.controller.poll();
+        expect($("history-editor").hidden).toBe(true);
+        expect($("editor").hidden).toBe(false);
+        expect(app.editor.readText()).toBe(current);
+    });
+
+    it("stacked request review stays mounted during polling and restores the live selection and undo history", async () => {
+        const { api, app } = await fixture();
+        const original = api.getMockImplementation(), originalText = app.editor.readText();
+        app.editor.replaceText(`LOCAL\n${originalText}`);
+        await app.controller.save();
+        app.editor.view.dispatch({ selection: { anchor: 8 } });
+        const liveView = app.editor.view, liveSelection = liveView.state.selection;
+        let version = 1;
+        api.mockImplementation((path, input) => {
+            if (path.startsWith("history?")) return { version, entries: [
+                { id: "request", type: "request", time: new Date().toISOString() },
+            ] };
+            if (path.startsWith("history/entry?")) return {
+                type: "batch", prompt: "Original requests",
+                snapshots: [{ path: "/work/a.md", content: originalText }, { path: "/work/a.md", content: "Earlier source\n" }],
+                items: [
+                    { path: "/work/a.md", snapshot: 0, prompt: "First", attachments: [{
+                        text: "# Title", selection: { start: { line: 0, character: 0 }, end: { line: 0, character: 7 } },
+                    }] },
+                    { path: "/work/a.md", snapshot: 1, prompt: "Second", attachments: [{
+                        text: "Earlier", selection: { start: { line: 0, character: 0 }, end: { line: 0, character: 7 } },
+                    }] },
+                ],
+            };
+            return original(path, input);
+        });
+        await showSidebar();
+        await userEvent.click($("history-tab"));
+        await expect.poll(() => $("history-list").querySelector("button")).toBeTruthy();
+        await userEvent.click($("history-list").querySelector("button"));
+        await expect.poll(() => $("history-review-diff").querySelectorAll(".history-sent-prompt").length).toBe(2);
+        const historicalEditor = $("history-review-diff").querySelector(".cm-editor");
+        version++;
+        await app.controller.poll();
+        expect($("history-review-diff").querySelector(".cm-editor")).toBe(historicalEditor);
+        expect($("history-review-diff").querySelectorAll(".history-sent-prompt").length).toBe(2);
+        expect(app.editor.readText()).toBe(`LOCAL\n${originalText}`);
+        await userEvent.click($("history-review-close"));
+        expect(app.editor.view).toBe(liveView);
+        expect(liveView.state.selection).toEqual(liveSelection);
+        version++;
+        await app.controller.poll();
+        expect($("history-editor").hidden).toBe(true);
+        expect($("editor").hidden).toBe(false);
+        app.editor.focus();
+        await key("u");
+        expect(app.editor.readText()).toBe(originalText);
+    });
+
+    it.each(["tab", "file"])("ignores a pending historical review after changing %s", async (target) => {
+        const { api, app } = await fixture();
+        await showSidebar();
+        const original = api.getMockImplementation(), pending = deferred();
+        api.mockImplementation((path, input) => {
+            if (path.startsWith("history?")) return { version: "h1", entries: [
+                { id: "edit", type: "change", source: "external", time: new Date().toISOString() },
+            ] };
+            if (path.startsWith("history/entry?")) return pending.promise;
+            return original(path, input);
+        });
+        await userEvent.click($("history-tab"));
+        await expect.poll(() => $("history-list").querySelector("button")).toBeTruthy();
+        await userEvent.click($("history-list").querySelector("button"));
+        if (target === "tab") await userEvent.click($("files-tab"));
+        else await app.controller.open("/work/b.js");
+        pending.resolve({ type: "change", before: "old", after: "obsolete snapshot" });
+        await pending.promise;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        expect($("history-editor").hidden).toBe(true);
+        expect($("editor").hidden).toBe(false);
+        expect($("history-review-diff").textContent).not.toContain("obsolete snapshot");
+    });
+
+    it.each(["save failure", "external conflict"])("surfaces %s during a history revert instead of reporting success", async (failure) => {
+        const { api, app } = await fixture();
+        await showSidebar();
+        const original = api.getMockImplementation();
+        const after = app.editor.readText();
+        api.mockImplementation(async (path, input) => {
+            if (path.startsWith("history?")) return { version: "h1", entries: [
+                { id: "edit", type: "change", source: "external", time: new Date().toISOString() },
+            ] };
+            if (path.startsWith("history/entry?")) return { type: "change", before: "# Before\n", after };
+            if (path === "save") {
+                if (failure === "save failure") throw new Error("Disk full");
+                return { ...await original(path, input), conflict: true };
+            }
+            return original(path, input);
+        });
+        await userEvent.click($("history-tab"));
+        await expect.poll(() => $("history-list").querySelector("button")).toBeTruthy();
+        await userEvent.click($("history-list").querySelector("button"));
+        await expect.poll(() => $("history-review-diff").querySelector(".history-diff-controls")).toBeTruthy();
+        await userEvent.click([...$("history-review-diff").querySelectorAll("button")].find((button) =>
+            button.textContent === "Revert all changes in this entry"));
+        await expect.poll(() => $("history-review-diff").textContent).toContain(
+            failure === "save failure" ? "Disk full" : "could not be saved during the revert");
+        const state = app.controller.getState();
+        expect(failure === "save failure" ? state.saveFailed : state.current.conflict).toBe(true);
+    });
+
+    it("shows typed history events, exact requests, escaped diffs, batches and three accessible tabs", async () => {
+        const { api, app } = await fixture();
+        await showSidebar();
+        const original = api.getMockImplementation();
+        const attachment = { filePath: "/work/a.md", text: "first line",
+            selection: { start: { line: 2, character: 0 }, end: { line: 2, character: 10 } } };
+        api.mockImplementation(async (path, input) => {
+            if (path.startsWith("history?")) return { version: "h1", pruned: 2, entries: [
+                { id: "batch-1", type: "batch", count: 2, time: new Date().toISOString() },
+                { id: "request-1", type: "request", time: new Date().toISOString() },
+                { id: "edit-1", type: "change", source: "external", time: new Date().toISOString() },
+            ] };
+            if (path.startsWith("history/entry?")) {
+                const id = new URLSearchParams(path.split("?")[1]).get("id");
+                if (id === "edit-1") return { type: "change", before: "old\n", after: "<script>alert(1)</script>\nfirst line\n" };
+                return { type: id === "batch-1" ? "batch" : "request", prompt: "Exact outgoing prompt",
+                    items: [
+                        { path: "/work/a.md", prompt: "Improve <script>this</script>", attachments: [attachment] },
+                        ...(id === "batch-1" ? [{ path: "/work/b.js", prompt: "Improve code", attachments: [{
+                            ...attachment, filePath: "/work/b.js", text: "const value = 1;",
+                        }] }] : []),
+                    ] };
+            }
+            return original(path, input);
+        });
+        await userEvent.click($("history-tab"));
+        await expect.poll(() => $("history-list").querySelectorAll("button").length).toBe(3);
+        expect($("history-tab").getAttribute("aria-selected")).toBe("true");
+        expect($("history-list").querySelectorAll(".copilot-icon")).toHaveLength(2);
+        expect($("history-status").textContent).toContain("2 older entries pruned");
+        await userEvent.click($("history-list").querySelector('[data-id="batch-1"]'));
+        await expect.poll(() => $("history-detail").textContent).toContain("Batch sent to Copilot (2)");
+        await expect.poll(() => $("history-review-diff").textContent).toContain("Improve <script>this</script>");
+        expect($("history-detail").textContent).not.toContain("Improve");
+        expect($("history-detail").textContent).not.toContain("Same agent turn");
+        expect($("history-review-diff").textContent).toContain("Exact outgoing prompt");
+        expect($("history-review-diff").querySelectorAll("script")).toHaveLength(0);
+        await expect.poll(() => $("history-review-diff").textContent).toContain("Improve code");
+        expect($("history-review-diff").querySelector("select")).toBeNull();
+        expect(app.editor.readText()).toContain("first line");
+        await showSidebar();
+        await userEvent.click($("history-list").querySelector('[data-id="request-1"]'));
+        await expect.poll(() => $("history-review-diff").querySelector(".history-sent-prompt")).toBeTruthy();
+        await showSidebar();
+        await userEvent.click($("history-list").querySelector('[data-id="edit-1"]'));
+        await expect.poll(() => $("history-review-diff").textContent).toContain("<script>alert(1)</script>");
+        expect($("history-review-diff").querySelectorAll("script")).toHaveLength(0);
+        expect($("history-detail").querySelector(".cm-editor")).toBeNull();
+        expect($("editor").hidden).toBe(true);
+        expect($("history-editor").hidden).toBe(false);
+        const view = app.editor.view, selection = view.state.selection.main;
+        await userEvent.click($("history-review-close"));
+        expect($("editor").hidden).toBe(false);
+        expect($("history-editor").hidden).toBe(true);
+        expect(app.editor.view).toBe(view);
+        expect(view.state.selection.main).toEqual(selection);
+        await showSidebar();
+        $("history-tab").focus();
+        await key("{ArrowRight}");
+        expect(document.activeElement).toBe($("files-tab"));
+        await key("{End}{ArrowDown}");
+        expect(document.activeElement.closest("#history-list")).toBe($("history-list"));
+        await key("G");
+        expect(document.activeElement.dataset.id).toBe("edit-1");
+        await key("{Escape}");
+        expect(app.editor.view.hasFocus).toBe(true);
+    });
+
+    it("shows history loading failures without blocking edits and clears stale details on file switches", async () => {
+        const { app, api } = await fixture();
+        await showSidebar();
+        const original = api.getMockImplementation();
+        api.mockImplementation((path, input) => path.startsWith("history?")
+            ? Promise.reject(new Error("History unavailable")) : original(path, input));
+        await userEvent.click($("history-tab"));
+        await expect.poll(() => $("history-status").textContent).toBe("History unavailable");
+        expect(app.controller.getState().blocked).toBe(false);
+        await app.controller.open("/work/b.js");
+        expect($("history-detail").textContent).toBe("");
+    });
+
+    it("ignores stale history detail responses after selecting another event", async () => {
+        const { api } = await fixture();
+        await showSidebar();
+        const original = api.getMockImplementation(), first = deferred();
+        api.mockImplementation((path, input) => {
+            if (path.startsWith("history?")) return { version: "h1", entries: [
+                { id: "first", type: "change", source: "vim", time: new Date().toISOString() },
+                { id: "second", type: "change", source: "external", time: new Date().toISOString() },
+            ] };
+            if (path.startsWith("history/entry?")) return path.endsWith("id=first") ? first.promise :
+                { type: "change", before: "old", after: "latest detail" };
+            return original(path, input);
+        });
+        await userEvent.click($("history-tab"));
+        await expect.poll(() => $("history-list").querySelectorAll("button").length).toBe(2);
+        await userEvent.click($("history-list").querySelector('[data-id="first"]'));
+        await userEvent.click($("history-list").querySelector('[data-id="second"]'));
+        await expect.poll(() => $("history-review-diff").textContent).toContain("latest detail");
+        first.resolve({ type: "change", before: "old", after: "stale detail" });
+        await first.promise;
+        expect($("history-review-diff").textContent).not.toContain("stale detail");
+    });
+
+    it("maps selections through external edits without changing Vim mode or stealing focus", async () => {
+        const { app } = await fixture();
+        await showSidebar();
+        const start = app.editor.view.state.doc.toString().indexOf("first line");
+        app.editor.view.dispatch({ selection: { anchor: start, head: start + 5 } });
+        const mode = $("mode").textContent;
+        const old = app.editor.readText();
+        $("files-tab").focus();
+        app.editor.applyDocument({ name: "a.md", content: `Inserted\n${old}` }, { kind: "replace" });
+        expect(app.editor.view.state.selection.main.anchor).toBe(start + 9);
+        expect(app.editor.view.state.selection.main.head).toBe(start + 14);
+        expect(document.activeElement).toBe($("files-tab"));
+        expect($("mode").textContent).toBe(mode);
+        expect(app.controller.getState().dirty).toBe(false);
+    });
+
     it("rebuilds before reloading the dev canvas and blocks duplicate clicks", async () => {
         const reloadCanvas = vi.fn();
         const { app, api } = await fixture({ dev: true, reloadCanvas });
@@ -932,6 +1231,7 @@ describe("mounted frontend with real CodeMirror", () => {
         const { app, api } = await fixture();
         app.editor.view.dispatch({ selection: { anchor: 9, head: 14 } });
         const expectedText = app.editor.view.state.sliceDoc(9, 14);
+        const expectedContext = app.editor.readText();
         app.editor.focus();
         await key("{Control>}i{/Control}");
         await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(1);
@@ -951,7 +1251,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(0);
         const calls = api.mock.calls.filter(([path]) => path === "agent");
         expect(calls).toHaveLength(2);
-        expect(calls[1][1]).toMatchObject({ path: "/work/a.md", prompt: "Please improve", selections: [{ text: expectedText }] });
+        expect(calls[1][1]).toMatchObject({ path: "/work/a.md", prompt: "Please improve", selections: [{ text: expectedText }], context: expectedContext });
     });
 
     it("keeps review markers mapped through edits and unchanged review polling, then sends as a group", async () => {

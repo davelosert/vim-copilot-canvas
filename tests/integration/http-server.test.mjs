@@ -3,10 +3,37 @@ import { readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "vitest";
 import { ReviewStore } from "../../src/backend/review-store.mjs";
+import { listen } from "../../src/backend/server.mjs";
 import { wordCount } from "../../src/frontend/markdown.js";
 import { DocumentStore, Workspace, apiClient, documentFixture, startEditorServer, workspaceTree } from "../helpers/fixtures.mjs";
 
 const fixture = (content) => documentFixture({ content, prefix: "vim-markdown-test-" });
+
+test("closing an aborted connection waits for its asynchronous handler to finish", async ({ onTestFinished }) => {
+    let entered, release;
+    const started = new Promise((resolve) => { entered = resolve; });
+    const held = new Promise((resolve) => { release = resolve; });
+    const entry = await listen({ root: ".", routes: {
+        get: new Map([["/api/held", async () => { entered(); await held; return {}; }]]), post: new Map(),
+    } });
+    let closing;
+    onTestFinished(async () => { release(); await (closing ?? entry.close()); });
+    const controller = new AbortController();
+    const url = new URL(entry.url);
+    const request = fetch(new URL("/api/held", url), {
+        signal: controller.signal, headers: { "X-Editor-Token": url.hash.slice(1) },
+    }).catch((error) => error);
+    await started;
+    controller.abort();
+    await request;
+    let closed = false;
+    closing = entry.close().then(() => { closed = true; });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(closed, false);
+    release();
+    await closing;
+    assert.equal(closed, true);
+});
 
 test("HTTP endpoints require token and same origin; assets are local", async () => {
     const { root, store, document } = await fixture();
