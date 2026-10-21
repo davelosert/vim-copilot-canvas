@@ -1,0 +1,17 @@
+version: 2
+
+multi-ecosystem-groups:
+  all-dependencies:
+    schedule:
+      interval: "weekly"
+
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    patterns: ["*"]
+    multi-ecosystem-group: "all-dependencies"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    patterns: ["*"]
+    multi-ecosystem-group: "all-dependencies"
