@@ -11,13 +11,13 @@ A [GitHub Copilot App canvas](https://docs.github.com/en/copilot/how-tos/github-
 - **Vim-Based File Navigation:** Navigate the files in your repository Vim-style in the side pane, so you can easily navigate your entire project.
 - **Direct File Editing:** Unlike traditional Vim, edits go directly to files instead of a separate buffer, so there is no need to save with `:w`.
 - **Theming & Settings:** Choose from all of CodeMirror's supported themes and choose different settings to individualize the experience.
-- **Open Web Links:** Open links from the Markdown editor with **Cmd+click** on macOS or **Ctrl+click** on Windows/Linux. Ordinary clicks still position the cursor.
+- **Open Links:** Open links from the Markdown editor with **Cmd+click** on macOS or **Ctrl+click** on Windows/Linux. Ordinary clicks still position the cursor.
 
 See the [feature guide](docs/features.md) for usage details, [get started](docs/getting-started.md), and the [development guide](docs/development.md) to contribute.
 
 ## Development
 
-Use Node.js `^22.12.0 || ^24.0.0 || >=26.0.0`. Install dependencies and run the test suite:
+Use Node.js 24 or newer. Install dependencies and run the test suite:
 
 ```sh
 npm ci
