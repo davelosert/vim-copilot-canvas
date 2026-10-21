@@ -759,6 +759,80 @@ describe("mounted frontend with real CodeMirror", () => {
         expect(prompt.querySelector(".agent-hint kbd").textContent).toMatch(/⇧⏎|Shift\+Enter/);
     });
 
+    it.each([true, false])("selects only Agent prompt text while typing with Vim mode %s", async (vimMode) => {
+        const { app, api } = await fixture();
+        if (!vimMode) {
+            await userEvent.click($("settings-button"));
+            await userEvent.click($("agent-vim-mode"));
+            await userEvent.click($("save-settings"));
+            await expect.poll(() => $("settings").open).toBe(false);
+        }
+        app.editor.focus();
+        await key("{Control>}i{/Control}");
+        const prompt = document.querySelector(".agent-prompt");
+        const inner = prompt.inner;
+        const outerDoc = app.editor.readText();
+        const outerSelection = app.editor.view.state.selection;
+        const isMac = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? "");
+        const modifier = isMac ? "Meta" : "Control";
+        const emptyShortcut = new KeyboardEvent("keydown", {
+            key: "a", [isMac ? "metaKey" : "ctrlKey"]: true, bubbles: true, cancelable: true,
+        });
+        let captured = false;
+        prompt.addEventListener("keydown", (event) => { captured = event.defaultPrevented; }, { capture: true, once: true });
+        inner.contentDOM.dispatchEvent(emptyShortcut);
+        expect(captured).toBe(true);
+        expect(emptyShortcut.defaultPrevented).toBe(true);
+        expect(inner.state.selection.main.from).toBe(0);
+        expect(inner.state.selection.main.to).toBe(0);
+
+        for (const modifiers of [
+            { ctrlKey: true, metaKey: true },
+            { [isMac ? "metaKey" : "ctrlKey"]: true, altKey: true },
+            { [isMac ? "metaKey" : "ctrlKey"]: true, shiftKey: true },
+            { [isMac ? "metaKey" : "ctrlKey"]: true, isComposing: true },
+        ]) {
+            let handled = false;
+            prompt.addEventListener("keydown", (event) => { handled = event.defaultPrevented; }, { capture: true, once: true });
+            inner.contentDOM.dispatchEvent(new KeyboardEvent("keydown", {
+                key: "a", bubbles: true, cancelable: true, ...modifiers,
+            }));
+            expect(handled).toBe(false);
+        }
+        const text = "First prompt line\nSecond prompt line";
+        await key("First prompt line{Shift>}{Enter}{/Shift}Second prompt line");
+        await key(`{${modifier}>}a{/${modifier}}`);
+        expect(inner.state.sliceDoc(inner.state.selection.main.from, inner.state.selection.main.to)).toBe(text);
+        const selection = document.getSelection();
+        expect(inner.contentDOM.contains(selection.anchorNode)).toBe(true);
+        expect(inner.contentDOM.contains(selection.focusNode)).toBe(true);
+        expect(document.activeElement).toBe(inner.contentDOM);
+        expect(app.editor.view.state.selection.eq(outerSelection)).toBe(true);
+
+        await key("Replacement");
+        expect(inner.state.doc.toString()).toBe("Replacement");
+        expect(app.editor.readText()).toBe(outerDoc);
+        expect(app.editor.view.state.selection.eq(outerSelection)).toBe(true);
+
+        await key("{Control>}{Enter}{/Control}");
+        await expect.poll(() => document.querySelector(".agent-prompt")).toBeNull();
+        await userEvent.click(document.querySelector(".review-marker"));
+        await key(`{${modifier}>}a{/${modifier}}Edited batch comment{Enter}`);
+        await expect.poll(() => document.querySelector(".agent-prompt")).toBeNull();
+        expect((await api("review")).items[0].prompt).toBe("Edited batch comment");
+        expect(app.editor.readText()).toBe(outerDoc);
+    });
+
+    it("preserves Vim Normal-mode Ctrl+A in the Agent prompt", async () => {
+        const { app } = await fixture();
+        app.editor.focus();
+        await key("{Control>}i{/Control}1{Escape}0{Control>}a{/Control}");
+        const prompt = document.querySelector(".agent-prompt");
+        expect(prompt.inner.state.doc.toString()).toBe("2");
+        expect(prompt.querySelector(".mode").textContent).toBe("NORMAL");
+        expect(prompt.inner.state.selection.main.empty).toBe(true);
+    });
+
     it("switches Agent Vim mode live without losing text and closes standard prompts with one Escape", async () => {
         const { app, api } = await fixture();
         app.editor.focus();
