@@ -441,9 +441,9 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.selectOptions($("editor-theme"), "dracula");
         await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        expect($("settings").open).toBe(false);
         expect(app.editor.readText()).toBe(content);
         expect(app.editor.view.state.selection.main.head).toBe(selection);
-        await userEvent.click($("close-settings"));
         app.editor.focus();
         await key("u");
         await expect.poll(() => app.editor.readText()).toBe("# Title\n\nfirst line\nsecond line");
@@ -541,13 +541,15 @@ describe("mounted frontend with real CodeMirror", () => {
             expect($("discard-settings").disabled).toBe(true);
             response.resolve(await original("settings", { showKeyboardShortcutIndicators: false }));
             await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-            expect($("settings").getBoundingClientRect().height).toBe(before.height);
+            expect($("settings").open).toBe(false);
             expect(app.editor.view.state).toBe(state);
             expect(dispatch).not.toHaveBeenCalled();
             expect(repaint).not.toHaveBeenCalled();
             expect(disabledChanges).toHaveLength(0);
 
             api.mockImplementation(original);
+            await userEvent.click($("settings-button"));
+            await expect.poll(() => $("settings-status").textContent).toBe("");
             await userEvent.click($("relative-line-numbers"));
             expect(dispatch).toHaveBeenCalledTimes(1);
             expect(app.editor.currentTheme()).toBe(theme);
@@ -624,6 +626,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("save-settings"));
         first.reject(new Error("Disk unavailable"));
         await expect.poll(() => $("settings-status").textContent).toContain("Disk unavailable");
+        expect($("settings").open).toBe(true);
         expect(writes).toBe(1);
         expect($("show-keyboard-shortcut-indicators").checked).toBe(false);
         expect($("relative-line-numbers").checked).toBe(true);
@@ -644,10 +647,13 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("relative-line-numbers"));
         await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        expect($("settings").open).toBe(false);
         const saved = await original("settings");
-        api.mockClear();
         const content = app.editor.readText();
         const selection = app.editor.view.state.selection;
+        await userEvent.click($("settings-button"));
+        await expect.poll(() => $("settings-status").textContent).toBe("");
+        api.mockClear();
         await userEvent.selectOptions($("editor-theme"), "nord");
         await userEvent.click($("relative-line-numbers"));
         await userEvent.click($("show-keyboard-shortcut-indicators"));
@@ -771,7 +777,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("agent-vim-mode"));
         await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-        await userEvent.click($("close-settings"));
+        expect($("settings").open).toBe(false);
         expect(document.querySelector(".agent-header .mode").hidden).toBe(true);
         expect(document.querySelector(".agent-input .cm-content").textContent).toBe("Keep this");
         expect(document.querySelector(".agent-cancel kbd").textContent).toBe("Esc");
@@ -791,7 +797,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("agent-vim-mode"));
         await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-        await userEvent.click($("close-settings"));
+        expect($("settings").open).toBe(false);
         expect(document.querySelector(".agent-header .mode").hidden).toBe(false);
         expect(document.querySelector(".agent-input .cm-content").textContent).toContain("Standard text");
         await userEvent.click(document.querySelector(".agent-input .cm-content"));
