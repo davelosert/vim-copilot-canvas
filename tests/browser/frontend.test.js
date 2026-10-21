@@ -450,6 +450,23 @@ describe("mounted frontend with real CodeMirror", () => {
         expect(api.mock.calls.some(([path, input]) => path === "settings" && input?.relativeLineNumbers)).toBe(true);
     });
 
+    it("keeps Vim visual selections visible on the cursor line", async () => {
+        const { app } = await fixture();
+        const activeLine = () => getComputedStyle(document.querySelector(".cm-activeLine")).backgroundColor;
+        const visibleSelection = () => [...document.querySelectorAll(".cm-selectionBackground")]
+            .some((marker) => marker.getBoundingClientRect().width > 0) && activeLine() === "rgba(0, 0, 0, 0)";
+        app.editor.focus();
+        expect(activeLine()).not.toBe("rgba(0, 0, 0, 0)");
+        await key("jjV");
+        await expect.poll(visibleSelection).toBe(true);
+        await key("{Escape}");
+        await expect.poll(activeLine).not.toBe("rgba(0, 0, 0, 0)");
+        await insert(app, "(inner) ");
+        await key("0fivi(");
+        expect(app.editor.view.state.sliceDoc(app.editor.view.state.selection.main.from, app.editor.view.state.selection.main.to)).toBe("inner");
+        await expect.poll(visibleSelection).toBe(true);
+    });
+
     it("shows or hides keyboard shortcut indicators throughout the canvas without disabling shortcuts", async () => {
         const { app } = await fixture();
         expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("true");
