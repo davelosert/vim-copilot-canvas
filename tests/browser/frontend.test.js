@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { mountApp } from "../../src/frontend/app.js";
 import { createExplorer } from "../../src/frontend/explorer.js";
+import { renderMarkdown, wordCount } from "../../src/frontend/markdown.js";
 import "../../src/frontend/primer.css";
 
 const [markup, stylesheet] = await Promise.all(["/index.html", "/editor.css"].map(async (url) => (await fetch(url)).text()));
@@ -38,6 +39,7 @@ function fakeApi() {
     const tree = () => ({ root: "/work", rootName: "work", entries: [...files.keys()].map((path) => ({ path, name: path.split("/").pop(), type: "file" })) });
     const api = vi.fn(async (path, input) => {
         if (path === "document" || path.startsWith("document?")) return { ...current };
+        if (path === "render") return { html: renderMarkdown(input.source), count: wordCount(input.source) };
         if (path === "settings") {
             if (input) settings = { ...settings, ...input };
             return { ...settings };
@@ -91,6 +93,7 @@ async function fixture({ dev = false, ...options } = {}) {
     mounted.push(app);
     await app.ready;
     await expect.poll(() => document.querySelectorAll(".tree-row").length).toBe(2);
+    await expect.poll(() => document.querySelector("#preview h1")?.textContent).toBe("Title");
     return { app, ...backend };
 }
 const $ = (id) => document.getElementById(id);
@@ -509,6 +512,46 @@ describe("mounted frontend with real CodeMirror", () => {
         }
     });
 
+    it("suspends preview and outline work in Edit-only mode and refreshes when reopened", async () => {
+        const { app, api, files } = await fixture();
+        await userEvent.click(document.querySelector('[data-layout="edit"]'));
+        expect($("words").hidden).toBe(true);
+        const renders = () => api.mock.calls.filter(([path]) => path === "render").length;
+        const before = renders();
+        const mutations = [];
+        const observer = new MutationObserver((records) => mutations.push(...records));
+        for (const id of ["preview", "outline"]) observer.observe($(id), { childList: true, subtree: true, attributes: true, characterData: true });
+        try {
+            files.set("/work/a.md", longMarkdown);
+            await app.controller.reload();
+            for (let index = 0; index < 20; index++) app.editor.view.dispatch({ changes: { from: 0, insert: "x" } });
+            await app.controller.save();
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(renders()).toBe(before);
+            mutations.length = 0;
+            app.editor.view.dispatch({ changes: { from: app.editor.view.state.doc.length, insert: "\n\n# Latest" } });
+            await app.controller.save();
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(mutations).toHaveLength(0);
+            expect(renders()).toBe(before);
+            await userEvent.click(document.querySelector('[data-layout="split"]'));
+            expect($("words").hidden).toBe(false);
+            await expect.poll(() => $("preview").querySelector("h1")?.textContent).toBe("Latest");
+            expect(renders()).toBe(before + 1);
+            await showSidebar();
+            await userEvent.click($("outline-tab"));
+            expect($("outline").lastElementChild.querySelector(".tree-label").textContent).toBe("Latest");
+            await userEvent.click($("toggle-explorer"));
+            mutations.length = 0;
+            app.editor.view.dispatch({ changes: { from: app.editor.view.state.doc.length, insert: "\n\n## While closed" } });
+            await app.controller.save();
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(mutations.some((record) => $("outline").contains(record.target))).toBe(false);
+            await showSidebar();
+            expect($("outline").lastElementChild.querySelector(".tree-label").textContent).toBe("While closed");
+        } finally { observer.disconnect(); }
+    });
+
     it("shows Markdown headings in a separate outline tab and jumps to their exact source lines", async () => {
         const { app, files } = await fixture();
         files.set("/work/a.md", [
@@ -636,6 +679,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await app.controller.reload();
         const source = app.editor.view.scrollDOM, preview = $("preview");
         await expect.poll(() => source.scrollHeight).toBeGreaterThan(source.clientHeight);
+        await expect.poll(() => preview.querySelectorAll("h2").length).toBe(100);
         expect(preview.scrollHeight).toBeGreaterThan(preview.clientHeight);
         expect(source.scrollHeight).not.toBe(preview.scrollHeight);
         await nextFrames();
@@ -657,6 +701,7 @@ describe("mounted frontend with real CodeMirror", () => {
         files.set("/work/a.md", longMarkdown);
         await app.controller.reload();
         const source = app.editor.view.scrollDOM, preview = $("preview");
+        await expect.poll(() => preview.querySelectorAll("h2").length).toBe(100);
         await nextFrames();
         scrollToProgress(preview, 0.6);
         await expect.poll(() => Math.abs(scrollProgress(source) - scrollProgress(preview))).toBeLessThan(0.005);
@@ -679,6 +724,7 @@ describe("mounted frontend with real CodeMirror", () => {
         files.set("/work/a.md", longMarkdown);
         await app.controller.reload();
         const source = app.editor.view.scrollDOM, preview = $("preview");
+        await expect.poll(() => preview.querySelectorAll("h2").length).toBe(100);
         await nextFrames();
         scrollToProgress(source, 0.8);
         await expect.poll(() => Math.abs(scrollProgress(preview) - scrollProgress(source))).toBeLessThan(0.005);
@@ -692,6 +738,7 @@ describe("mounted frontend with real CodeMirror", () => {
 
         files.set("/work/a.md", "# Short");
         await app.controller.reload();
+        await expect.poll(() => preview.querySelector("h1")?.textContent).toBe("Short");
         await nextFrames();
         expect(preview.scrollTop).toBe(0);
         expect(source.scrollTop).toBe(0);
@@ -740,9 +787,9 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.selectOptions($("editor-theme"), "dracula");
         await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        expect($("settings").open).toBe(false);
         expect(app.editor.readText()).toBe(content);
         expect(app.editor.view.state.selection.main.head).toBe(selection);
-        await userEvent.click($("close-settings"));
         app.editor.focus();
         await key("u");
         await expect.poll(() => app.editor.readText()).toBe("# Title\n\nfirst line\nsecond line");
@@ -840,13 +887,15 @@ describe("mounted frontend with real CodeMirror", () => {
             expect($("discard-settings").disabled).toBe(true);
             response.resolve(await original("settings", { showKeyboardShortcutIndicators: false }));
             await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-            expect($("settings").getBoundingClientRect().height).toBe(before.height);
+            expect($("settings").open).toBe(false);
             expect(app.editor.view.state).toBe(state);
             expect(dispatch).not.toHaveBeenCalled();
             expect(repaint).not.toHaveBeenCalled();
             expect(disabledChanges).toHaveLength(0);
 
             api.mockImplementation(original);
+            await userEvent.click($("settings-button"));
+            await expect.poll(() => $("settings-status").textContent).toBe("");
             await userEvent.click($("relative-line-numbers"));
             expect(dispatch).toHaveBeenCalledTimes(1);
             expect(app.editor.currentTheme()).toBe(theme);
@@ -923,6 +972,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("save-settings"));
         first.reject(new Error("Disk unavailable"));
         await expect.poll(() => $("settings-status").textContent).toContain("Disk unavailable");
+        expect($("settings").open).toBe(true);
         expect(writes).toBe(1);
         expect($("show-keyboard-shortcut-indicators").checked).toBe(false);
         expect($("relative-line-numbers").checked).toBe(true);
@@ -943,10 +993,13 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("relative-line-numbers"));
         await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
+        expect($("settings").open).toBe(false);
         const saved = await original("settings");
-        api.mockClear();
         const content = app.editor.readText();
         const selection = app.editor.view.state.selection;
+        await userEvent.click($("settings-button"));
+        await expect.poll(() => $("settings-status").textContent).toBe("");
+        api.mockClear();
         await userEvent.selectOptions($("editor-theme"), "nord");
         await userEvent.click($("relative-line-numbers"));
         await userEvent.click($("show-keyboard-shortcut-indicators"));
@@ -1052,6 +1105,80 @@ describe("mounted frontend with real CodeMirror", () => {
         expect(prompt.querySelector(".agent-hint kbd").textContent).toMatch(/⇧⏎|Shift\+Enter/);
     });
 
+    it.each([true, false])("selects only Agent prompt text while typing with Vim mode %s", async (vimMode) => {
+        const { app, api } = await fixture();
+        if (!vimMode) {
+            await userEvent.click($("settings-button"));
+            await userEvent.click($("agent-vim-mode"));
+            await userEvent.click($("save-settings"));
+            await expect.poll(() => $("settings").open).toBe(false);
+        }
+        app.editor.focus();
+        await key("{Control>}i{/Control}");
+        const prompt = document.querySelector(".agent-prompt");
+        const inner = prompt.inner;
+        const outerDoc = app.editor.readText();
+        const outerSelection = app.editor.view.state.selection;
+        const isMac = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? "");
+        const modifier = isMac ? "Meta" : "Control";
+        const emptyShortcut = new KeyboardEvent("keydown", {
+            key: "a", [isMac ? "metaKey" : "ctrlKey"]: true, bubbles: true, cancelable: true,
+        });
+        let captured = false;
+        prompt.addEventListener("keydown", (event) => { captured = event.defaultPrevented; }, { capture: true, once: true });
+        inner.contentDOM.dispatchEvent(emptyShortcut);
+        expect(captured).toBe(true);
+        expect(emptyShortcut.defaultPrevented).toBe(true);
+        expect(inner.state.selection.main.from).toBe(0);
+        expect(inner.state.selection.main.to).toBe(0);
+
+        for (const modifiers of [
+            { ctrlKey: true, metaKey: true },
+            { [isMac ? "metaKey" : "ctrlKey"]: true, altKey: true },
+            { [isMac ? "metaKey" : "ctrlKey"]: true, shiftKey: true },
+            { [isMac ? "metaKey" : "ctrlKey"]: true, isComposing: true },
+        ]) {
+            let handled = false;
+            prompt.addEventListener("keydown", (event) => { handled = event.defaultPrevented; }, { capture: true, once: true });
+            inner.contentDOM.dispatchEvent(new KeyboardEvent("keydown", {
+                key: "a", bubbles: true, cancelable: true, ...modifiers,
+            }));
+            expect(handled).toBe(false);
+        }
+        const text = "First prompt line\nSecond prompt line";
+        await key("First prompt line{Shift>}{Enter}{/Shift}Second prompt line");
+        await key(`{${modifier}>}a{/${modifier}}`);
+        expect(inner.state.sliceDoc(inner.state.selection.main.from, inner.state.selection.main.to)).toBe(text);
+        const selection = document.getSelection();
+        expect(inner.contentDOM.contains(selection.anchorNode)).toBe(true);
+        expect(inner.contentDOM.contains(selection.focusNode)).toBe(true);
+        expect(document.activeElement).toBe(inner.contentDOM);
+        expect(app.editor.view.state.selection.eq(outerSelection)).toBe(true);
+
+        await key("Replacement");
+        expect(inner.state.doc.toString()).toBe("Replacement");
+        expect(app.editor.readText()).toBe(outerDoc);
+        expect(app.editor.view.state.selection.eq(outerSelection)).toBe(true);
+
+        await key("{Control>}{Enter}{/Control}");
+        await expect.poll(() => document.querySelector(".agent-prompt")).toBeNull();
+        await userEvent.click(document.querySelector(".review-marker"));
+        await key(`{${modifier}>}a{/${modifier}}Edited batch comment{Enter}`);
+        await expect.poll(() => document.querySelector(".agent-prompt")).toBeNull();
+        expect((await api("review")).items[0].prompt).toBe("Edited batch comment");
+        expect(app.editor.readText()).toBe(outerDoc);
+    });
+
+    it("preserves Vim Normal-mode Ctrl+A in the Agent prompt", async () => {
+        const { app } = await fixture();
+        app.editor.focus();
+        await key("{Control>}i{/Control}1{Escape}0{Control>}a{/Control}");
+        const prompt = document.querySelector(".agent-prompt");
+        expect(prompt.inner.state.doc.toString()).toBe("2");
+        expect(prompt.querySelector(".mode").textContent).toBe("NORMAL");
+        expect(prompt.inner.state.selection.main.empty).toBe(true);
+    });
+
     it("switches Agent Vim mode live without losing text and closes standard prompts with one Escape", async () => {
         const { app, api } = await fixture();
         app.editor.focus();
@@ -1070,7 +1197,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("agent-vim-mode"));
         await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-        await userEvent.click($("close-settings"));
+        expect($("settings").open).toBe(false);
         expect(document.querySelector(".agent-header .mode").hidden).toBe(true);
         expect(document.querySelector(".agent-input .cm-content").textContent).toBe("Keep this");
         expect(document.querySelector(".agent-cancel kbd").textContent).toBe("Esc");
@@ -1090,7 +1217,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("agent-vim-mode"));
         await userEvent.click($("save-settings"));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-        await userEvent.click($("close-settings"));
+        expect($("settings").open).toBe(false);
         expect(document.querySelector(".agent-header .mode").hidden).toBe(false);
         expect(document.querySelector(".agent-input .cm-content").textContent).toContain("Standard text");
         await userEvent.click(document.querySelector(".agent-input .cm-content"));

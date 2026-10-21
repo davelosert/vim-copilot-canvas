@@ -55,6 +55,7 @@ export function createSettings({ elements: e, api, onSettings }) {
             persisted = { ...value };
             render({ ...value, ...newer });
             e.status.textContent = Object.keys(newer).length ? "Unsaved changes." : "Settings saved.";
+            if (!Object.keys(newer).length) e.dialog.close();
         } catch (reason) {
             if (!disposed) error(reason);
         } finally {
@@ -98,6 +99,8 @@ export function createSettings({ elements: e, api, onSettings }) {
     listen(e.discard, "click", discard);
     listen(e.close, "click", close);
     listen(e.dialog, "cancel", (event) => { event.preventDefault(); close(); });
-    listen(e.dialog, "close", () => { if (!e.dialog.open) discard(); });
+    listen(e.dialog, "close", () => {
+        if (!e.dialog.open && settings && Object.keys(difference(persisted, settings)).length) discard();
+    });
     return { apply, dispose() { disposed = true; handlers.abort(); e.dialog.close(); } };
 }

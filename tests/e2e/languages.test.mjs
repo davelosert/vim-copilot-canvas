@@ -137,12 +137,15 @@ test("multiple languages load locally and retain Vim automatic saving", async ()
 
 test("Markdown aliases retain all layouts and restore the selected setting", async () => {
     const { page, open, editOnly, finish } = await languagePage();
+    let previousLayout = "split";
     for (const [index, name] of ["note.md", "note.markdown", "note.mdown"].entries()) {
         await open(name);
         assert.equal(await page.locator("#filetype").innerText(), "Markdown");
         assert.equal(await page.locator("#layout-controls").isVisible(), true);
-        assert.equal(await page.locator("#words").isVisible(), true);
-        assert.equal(await page.locator("#preview h1").count(), 1);
+        if (previousLayout !== "edit") await until(async () => assert.equal(await page.locator("#words").isVisible(), true));
+        else assert.equal(await page.locator("#words").isVisible(), false);
+        if (previousLayout !== "edit") await until(async () => assert.equal(await page.locator("#preview h1").count(), 1));
+        else assert.equal(await page.locator("#preview h1").count(), 0);
         const layout = ["preview", "edit", "split"][index];
         await page.locator(`button[data-layout="${layout}"]`).click();
         await open("data.json");
@@ -153,6 +156,7 @@ test("Markdown aliases retain all layouts and restore the selected setting", asy
         assert.equal(await page.locator(`button[data-layout="${layout}"]`).getAttribute("aria-pressed"), "true");
         assert.equal(await page.locator(".preview-pane").isVisible(), layout !== "edit");
         assert.equal(await page.locator(".editor-pane").isVisible(), layout !== "preview");
+        previousLayout = layout;
     }
     await finish({ chunksLoaded: true });
 });

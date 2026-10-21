@@ -217,7 +217,16 @@ export function createAgent({ getPath, reviewCount, send, addToReview, editRevie
             form.addEventListener("keydown", (event) => {
                 if (event.target !== inner.contentDOM || event.isComposing) return;
                 const mod = event.ctrlKey || event.metaKey;
-                if (event.key === "Enter" && !event.altKey && (currentMode === "insert" || currentMode === "normal")) {
+                const selectAll = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+                if (currentMode === "insert" && selectAll && event.key.toLowerCase() === "a" && !event.altKey && !event.shiftKey) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    inner.dispatch({
+                        selection: { anchor: 0, head: inner.state.doc.length },
+                        scrollIntoView: true,
+                        userEvent: "select",
+                    });
+                } else if (event.key === "Enter" && !event.altKey && (currentMode === "insert" || currentMode === "normal")) {
                     if (this.item && (!event.shiftKey || mod)) submit("edit");
                     else if (this.item) return;
                     else if (mod && event.shiftKey) submit("send-review");

@@ -1,4 +1,5 @@
 import { rm, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
@@ -8,12 +9,12 @@ const assets = fileURLToPath(new URL("../assets/", import.meta.url));
 await rm(assets, { recursive: true, force: true });
 await build({
     absWorkingDir: root,
-    entryPoints: ["src/frontend/main.js"],
+    entryPoints: { editor: "src/frontend/main.js" },
     bundle: true,
     format: "esm",
     splitting: true,
     outdir: assets,
-    entryNames: "editor",
+    entryNames: "[name]",
     chunkNames: "chunks/[name]-[hash]",
     minify: true,
     logLevel: "info",
@@ -47,3 +48,15 @@ const notices = await Promise.all(historyLicenses.map(async ([name, license]) =>
     `${name}\n${await readFile(`${root}node_modules/${name}/${license}`, "utf8")}`));
 notices.push(`Primer Octicons copilot icon\n${await readFile(`${root}resources/octicons-LICENSE`, "utf8")}`);
 await writeFile(`${assets}history-licenses.txt`, notices.join("\n\n"));
+// Server-side Markdown renderer: installed plugins ship without node_modules, so it is bundled too.
+await build({
+    absWorkingDir: root,
+    entryPoints: { "markdown-worker": "src/backend/markdown-worker.mjs" },
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    outdir: join(assets, "server"),
+    outExtension: { ".js": ".mjs" },
+    minify: true,
+    logLevel: "info",
+});

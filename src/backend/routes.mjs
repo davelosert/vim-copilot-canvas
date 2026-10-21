@@ -8,7 +8,7 @@ import { readImage } from "./images.mjs";
  * path and exposes the same open/current-document operations to HTTP and SDK
  * callers. Handlers return JSON bodies or throw EditorError.
  */
-export function createRoutes({ store, workspace, document, reviews, settings, sendMessage }) {
+export function createRoutes({ store, workspace, document, reviews, settings, sendMessage, markdown }) {
     const state = { activePath: document.path };
     const deliver = createDelivery(sendMessage);
     const sendRecorded = async ({ type, prompt, items, deliveryId }) => {
@@ -90,6 +90,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
     ]);
 
     const post = new Map([
+        ["/api/render", objectInput((input) => markdown.render(input.source))],
         ["/api/image", documentInput((target, input) => readImage(workspace, target.path, input.source))],
         ["/api/draft", revisionInput((target, input) => store.update(target, input.content, input.revision))],
         ["/api/save", revisionInput((target, input) => store.save(target, input.revision))],
