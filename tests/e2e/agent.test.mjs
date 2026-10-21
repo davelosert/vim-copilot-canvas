@@ -113,7 +113,7 @@ test("Primer prompt and review controls follow live themes without changing the 
     await page.locator("#editor-theme").selectOption("dracula");
     await page.locator("#save-settings").click();
     await until(async () => assert.equal(await page.locator("#settings-status").innerText(), "Settings saved."));
-    await page.locator("#close-settings").click();
+    assert.equal(await page.locator("#settings").isVisible(), false);
     await until(async () => assert.equal(await scope.getAttribute("data-color-mode"), "dark"));
     assert.equal(await page.locator("html").getAttribute("data-color-mode"), "light");
     await until(async () => assert.equal(await scope.getByRole("button", { name: "Add to batch", exact: true }).evaluate((node) =>
