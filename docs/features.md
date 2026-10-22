@@ -31,6 +31,14 @@ Switch the sidebar to **Outline** to navigate the current Markdown document, inc
 
 Clicking a heading focuses its source line; preview-only mode opens the source alongside the preview. `Ctrl+w h` / `:Ex` focuses the selected sidebar tab's content, and Esc / `Ctrl+w l` returns to the editor.
 
+## Quick open
+
+Press **Cmd+P** on macOS or **Ctrl+P** on Windows/Linux, run `:Files`, press `<Space>f` in normal mode, or press `f` in the file explorer to open a fuzzy file finder for the workspace. Mod+P replaces Vim's `Ctrl+p` in the editor; in normal mode `<Space>` acts as a leader prefix, while it still moves right in visual mode.
+
+Type any part of a path. Matching is fuzzy and smart-case, and it favours file names, word boundaries, and consecutive characters. Files ignored by `.gitignore` (or by `.git` and `node_modules` outside a Git repository) are excluded. With an empty query, the finder lists recently opened files first; recents are remembered per workspace and shared across panels.
+
+Use ↑/↓, `Ctrl+n` / `Ctrl+p`, or `Ctrl+j` / `Ctrl+k` to move through results, Enter or a click to open, and Esc to close. Opening a file follows the same unsaved-draft and conflict prompts as the explorer.
+
 ## Document history
 
 Choose **History** beside Files and Outline for a newest-first timeline of the current file. **Vim edit** and **External edit** entries show added/removed line counts; selecting an edit shows CodeMirror's inline unified diff **directly in the main editor area**, not in the sidebar. Deleted text, word-level highlights, and collapsed unchanged sections appear beside the file's source lines. **Return to editing** or Escape leaves review and restores the live Vim editor, preserving its selection, undo history, and reading position. The Markdown preview continues to show the live file, not the historical snapshot.

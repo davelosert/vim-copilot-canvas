@@ -59,6 +59,7 @@ function fakeApi() {
             return { ...current };
         }
         if (path.startsWith("tree")) return tree();
+        if (path === "files") return { root: "/work", separator: "/", files: [...files.keys()].map((file) => file.slice(6)), truncated: false, recent: ["b.js"] };
         if (path === "review") return { items: [...items] };
         if (path === "review/add") {
             items.push({ ...input, id: `item-${items.length}`, label: `${input.path.split("/").pop()}:1`, lines: input.lines ?? [{ start: 1, end: 1 }] });
@@ -110,6 +111,73 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    it("opens files from the fuzzy finder with combobox and listbox semantics", async () => {
+        const { app } = await fixture();
+        const mac = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform);
+        const options = () => [...$("finder-list").children];
+        const selected = () => options().findIndex((row) => row.getAttribute("aria-selected") === "true");
+        app.editor.focus();
+        await key(mac ? "{Meta>}p{/Meta}" : "{Control>}p{/Control}");
+        await expect.poll(() => $("finder").open).toBe(true);
+        expect(document.activeElement).toBe($("finder-input"));
+        expect($("finder-input").getAttribute("role")).toBe("combobox");
+        expect($("finder-input").getAttribute("aria-controls")).toBe("finder-list");
+        expect($("finder-list").getAttribute("role")).toBe("listbox");
+        await expect.poll(() => options().map((row) => row.dataset.path)).toEqual(["b.js", "a.md"]);
+        expect(options().every((row) => row.getAttribute("role") === "option")).toBe(true);
+        expect(options()[0].textContent).toContain("recent");
+        expect($("finder-input").getAttribute("aria-activedescendant")).toBe("finder-option-0");
+        expect($("finder-status").textContent).toBe("2 files");
+        await key("{ArrowDown}");
+        expect(selected()).toBe(1);
+        expect($("finder-input").getAttribute("aria-activedescendant")).toBe("finder-option-1");
+        await key("{Control>}p{/Control}");
+        expect(selected()).toBe(0);
+        await key("{Control>}n{/Control}");
+        expect(selected()).toBe(1);
+        await key("{Control>}k{/Control}");
+        expect(selected()).toBe(0);
+        await key("{Control>}j{/Control}");
+        expect(selected()).toBe(1);
+        await key("{Escape}");
+        expect($("finder").open).toBe(false);
+        await expect.poll(() => app.editor.view.hasFocus).toBe(true);
+        expect(app.controller.getState().current.path).toBe("/work/a.md");
+
+        await key(":Files{Enter}");
+        await expect.poll(() => $("finder").open).toBe(true);
+        await expect.poll(() => document.activeElement).toBe($("finder-input"));
+        await key("bjs");
+        await expect.poll(() => options().map((row) => row.dataset.path)).toEqual(["b.js"]);
+        expect([...options()[0].querySelectorAll("mark")].map((mark) => mark.textContent)).toEqual(["b", "j", "s"]);
+        await key("{Enter}");
+        await expect.poll(() => app.controller.getState().current.path).toBe("/work/b.js");
+        expect($("finder").open).toBe(false);
+        await expect.poll(() => app.editor.view.hasFocus).toBe(true);
+
+        await showSidebar();
+        $("tree").focus();
+        await key("f");
+        await expect.poll(() => $("finder").open).toBe(true);
+        expect($("finder-input").value).toBe("");
+        await key("a.md");
+        await userEvent.click(options()[0]);
+        await expect.poll(() => app.controller.getState().current.path).toBe("/work/a.md");
+        expect($("finder").open).toBe(false);
+    });
+
+    it("opens the finder with Space f while Space keeps moving right in visual mode", async () => {
+        const { app } = await fixture();
+        app.editor.focus();
+        await key(" f");
+        await expect.poll(() => $("finder").open).toBe(true);
+        await key("{Escape}");
+        await expect.poll(() => app.editor.view.hasFocus).toBe(true);
+        await key("v  ");
+        await expect.poll(() => app.editor.view.state.selection.main.head).toBe(3);
+        expect($("finder").open).toBe(false);
+    });
+
     it.each(["change", "batch"])("keeps the previous review visible until the next %s record is ready", async (type) => {
         const { api, app } = await fixture();
         await showSidebar();

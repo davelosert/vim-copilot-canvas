@@ -3,6 +3,7 @@ import { createDocumentController } from "./document-controller.js";
 import { createEditor } from "./editor.js";
 import { createAgent } from "./agent.js";
 import { createExplorer } from "./explorer.js";
+import { createFinder } from "./finder.js";
 import { createOutline } from "./outline.js";
 import { createCommands } from "./commands.js";
 import { createPreview } from "./preview.js";
@@ -157,8 +158,14 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             if (await open(item.path) && !disposed && controller.getState().current.path === item.path) agent.edit(editor.view, item);
         },
     });
+    const finder = createFinder({
+        elements: elements({ dialog: "finder", input: "finder-input", list: "finder-list", status: "finder-status" }),
+        api, window: win, onError: report,
+        onOpen: (path) => safe(open(path).then((opened) => { if (!disposed && !opened) editor.focus(); })),
+    });
+    const findFile = () => finder.open();
     const explorer = createExplorer({
-        tree: $("tree"), api, onOpen: (path, options) => open(path, options),
+        tree: $("tree"), api, onOpen: (path, options) => open(path, options), onFind: findFile,
         onLeave: () => shell.focusEditor(),
         onHide: () => { shell.setSidebar(false); editor.focus(); }, onError: report,
     });
@@ -282,7 +289,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     commands = createCommands({
         document: doc, editor, agent,
         actions: {
-            save, open: (path) => safe(open(path)), onError: report, focusExplorer,
+            save, open: (path) => safe(open(path)), onError: report, focusExplorer, findFile,
             sidebarOpen: shell.sidebarOpen, hideExplorer: () => shell.setSidebar(false),
             submitReview: () => safe(review.submit()), discardReview: () => safe(review.discard()),
         },
@@ -349,7 +356,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             win.clearInterval(interval);
             handlers.abort(); observer.disconnect();
             darkQuery.removeEventListener("change", updateTheme);
-            controller.dispose(); commands.dispose(); explorer.dispose(); outline.dispose(); history.dispose(); preferences.dispose();
+            controller.dispose(); commands.dispose(); finder.dispose(); explorer.dispose(); outline.dispose(); history.dispose(); preferences.dispose();
             review.dispose(); preview.dispose(); shell.dispose();
             scrollSync?.dispose();
             editor.dispose(); agent.dispose();

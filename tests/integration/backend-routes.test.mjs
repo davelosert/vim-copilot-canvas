@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { DocumentStore } from "../../src/backend/document-store.mjs";
 import { Workspace } from "../../src/backend/workspace.mjs";
 import { ReviewStore } from "../../src/backend/review-store.mjs";
+import { MAX_RECENT, RecentStore } from "../../src/backend/recent-store.mjs";
 import { SettingsStore } from "../../src/backend/settings-store.mjs";
 import { createRoutes } from "../../src/backend/routes.mjs";
 import { buildAttachments, createDelivery, validPrompt } from "../../src/backend/agent-delivery.mjs";
@@ -234,4 +235,40 @@ test("HTTP transport keeps guards, assets, limits and error codes", async ({ onT
     expect((await entry.openFile("b.md")).name).toBe("b.md");
     expect((await entry.document).name).toBe("b.md");
     expect(entry.state.activePath).toBe(join(workspace.root, "b.md"));
+});
+
+test("file search lists workspace files with persisted recents, newest first", async ({ onTestFinished }) => {
+    const { base, project, store, workspace, document, reviews, settings } = await fixture(onTestFinished);
+    await mkdir(join(project, "docs"));
+    await writeFile(join(project, "docs", "c.md"), "C\n");
+    const recents = new RecentStore(join(base, "artifacts", "recent"));
+    const routes = createRoutes({ store, workspace, document, reviews, recents, settings });
+    await routes.initialized;
+    const files = routes.get.get("/api/files");
+    expect(await files()).toEqual({ root: project, separator: expect.any(String), files: ["a.md", "b.md", "docs/c.md"], truncated: false, recent: ["a.md"] });
+    await routes.post.get("/api/open")({ path: "docs/c.md" });
+    await routes.openFile("b.md");
+    workspace.invalidateFiles();
+    expect((await files()).recent).toEqual(["b.md", "docs/c.md", "a.md"]);
+
+    // Another panel (new store instance) sees the same list; deleted files drop out.
+    await rm(join(project, "docs"), { recursive: true });
+    workspace.invalidateFiles();
+    const other = createRoutes({ store, workspace, document, reviews, settings,
+        recents: new RecentStore(join(base, "artifacts", "recent")) });
+    await other.initialized;
+    expect((await other.get.get("/api/files")()).recent).toEqual(["a.md", "b.md"]);
+});
+
+test("recent store caps its list and ignores corrupt or foreign files", async ({ onTestFinished }) => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), "vim-recent-")));
+    onTestFinished(() => rm(base, { recursive: true, force: true }));
+    const recents = new RecentStore(join(base, "recent"));
+    await Promise.all(Array.from({ length: MAX_RECENT + 5 }, (_, index) => recents.add("/root", `/root/${index}.md`)));
+    const items = await recents.list("/root");
+    expect(items).toHaveLength(MAX_RECENT);
+    expect(items[0]).toBe(`/root/${MAX_RECENT + 4}.md`);
+    expect(await recents.list("/other")).toEqual([]);
+    await writeFile(recents.file("/root"), "{not json");
+    expect(await recents.list("/root")).toEqual([]);
 });
