@@ -21,7 +21,7 @@ afterEach(() => {
     for (const property of ["--editor-accent", "--editor-accent-contrast", "--editor-surface", "--editor-page",
         "--editor-canvas", "--editor-text", "--editor-muted", "--editor-border", "--editor-soft",
         "--editor-selection", "--editor-success", "--editor-warning", "--editor-danger", "--editor-important",
-        "--tree-folder-color", "--tree-markdown-color"]) {
+        "--tree-folder-color", "--tree-markdown-color", "--font-mono"]) {
         document.documentElement.style.removeProperty(property);
     }
     vi.restoreAllMocks();
@@ -34,7 +34,7 @@ function fakeApi() {
     ]);
     let revision = 0;
     let current = { path: "/work/a.md", name: "a.md", content: files.get("/work/a.md"), revision: "r0", diskHash: "d0", dirty: false, conflict: false };
-    let settings = { relativeLineNumbers: false, showKeyboardShortcutIndicators: true, theme: "system" };
+    let settings = { relativeLineNumbers: false, showKeyboardShortcutIndicators: true, theme: "system", font: "neon" };
     let items = [];
     const tree = () => ({ root: "/work", rootName: "work", entries: [...files.keys()].map((path) => ({ path, name: path.split("/").pop(), type: "file" })) });
     const api = vi.fn(async (path, input) => {
@@ -921,13 +921,16 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("show-keyboard-shortcut-indicators"));
         await userEvent.click($("relative-line-numbers"));
         await userEvent.selectOptions($("editor-theme"), "dracula");
+        await userEvent.selectOptions($("editor-font"), "argon");
         expect(writes).toHaveLength(0);
         expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("true");
         expect(getComputedStyle(document.documentElement).getPropertyValue("--editor-canvas").trim()).toBe("#282a36");
+        expect(getComputedStyle($("editor").querySelector(".cm-scroller")).fontFamily).toContain("Monaspace Argon");
         await userEvent.click($("save-settings"));
         expect(writes).toHaveLength(1);
-        expect(writes[0].input).toEqual({ relativeLineNumbers: true, theme: "dracula" });
+        expect(writes[0].input).toEqual({ relativeLineNumbers: true, theme: "dracula", font: "argon" });
         await userEvent.selectOptions($("editor-theme"), "nord");
+        await userEvent.selectOptions($("editor-font"), "xenon");
         await userEvent.click($("show-keyboard-shortcut-indicators"));
         expect($("close-settings").disabled).toBe(true);
         expect($("discard-settings").disabled).toBe(true);
@@ -942,13 +945,14 @@ describe("mounted frontend with real CodeMirror", () => {
         expect($("show-keyboard-shortcut-indicators").checked).toBe(false);
         expect($("relative-line-numbers").checked).toBe(true);
         expect($("editor-theme").value).toBe("nord");
+        expect($("editor-font").value).toBe("xenon");
         expect(app.editor.currentTheme()).toBe(theme);
         await userEvent.click($("save-settings"));
         expect(writes).toHaveLength(2);
-        expect(writes[1].input).toEqual({ showKeyboardShortcutIndicators: false, theme: "nord" });
+        expect(writes[1].input).toEqual({ showKeyboardShortcutIndicators: false, theme: "nord", font: "xenon" });
         writes[1].resolve(await original("settings", writes[1].input));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-        expect(await original("settings")).toEqual({ showKeyboardShortcutIndicators: false, relativeLineNumbers: true, theme: "nord" });
+        expect(await original("settings")).toEqual({ showKeyboardShortcutIndicators: false, relativeLineNumbers: true, theme: "nord", font: "xenon" });
     });
 
     it("ignores a stale settings refresh and keeps failed Save previews available for retry", async () => {
@@ -963,7 +967,7 @@ describe("mounted frontend with real CodeMirror", () => {
         });
         await userEvent.click($("settings-button"));
         await userEvent.click($("show-keyboard-shortcut-indicators"));
-        refresh.resolve({ relativeLineNumbers: false, theme: "dracula", showKeyboardShortcutIndicators: true });
+        refresh.resolve({ relativeLineNumbers: false, theme: "dracula", showKeyboardShortcutIndicators: true, font: "neon" });
         await expect.poll(() => $("settings-status").textContent).toBe("Unsaved changes.");
         expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("false");
         expect($("editor-theme").value).toBe("system");
@@ -976,12 +980,12 @@ describe("mounted frontend with real CodeMirror", () => {
         expect(writes).toBe(1);
         expect($("show-keyboard-shortcut-indicators").checked).toBe(false);
         expect($("relative-line-numbers").checked).toBe(true);
-        expect(await original("settings")).toEqual({ relativeLineNumbers: false, theme: "system", showKeyboardShortcutIndicators: true });
+        expect(await original("settings")).toEqual({ relativeLineNumbers: false, theme: "system", showKeyboardShortcutIndicators: true, font: "neon" });
         await userEvent.click($("save-settings"));
         expect(writes).toBe(2);
         second.resolve(await original("settings", { relativeLineNumbers: true, showKeyboardShortcutIndicators: false }));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-        expect(await original("settings")).toEqual({ relativeLineNumbers: true, theme: "system", showKeyboardShortcutIndicators: false });
+        expect(await original("settings")).toEqual({ relativeLineNumbers: true, theme: "system", showKeyboardShortcutIndicators: false, font: "neon" });
     });
 
     it.each(["discard-settings", "close-settings", "Escape"])("restores the last saved settings without a write on %s", async (action) => {
@@ -1027,7 +1031,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("settings-button"));
         await userEvent.selectOptions($("editor-theme"), "dracula");
         await userEvent.click($("close-settings"));
-        refresh.resolve({ relativeLineNumbers: true, theme: "nord", showKeyboardShortcutIndicators: false });
+        refresh.resolve({ relativeLineNumbers: true, theme: "nord", showKeyboardShortcutIndicators: false, font: "neon" });
         await Promise.resolve();
         await Promise.resolve();
         expect($("editor-theme").value).toBe("system");
@@ -1463,7 +1467,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("settings-button"));
         expect($("settings-status").textContent).toBe("Loading settings...");
         app.dispose();
-        response.resolve({ theme: "dracula", relativeLineNumbers: true });
+        response.resolve({ theme: "dracula", relativeLineNumbers: true, font: "neon" });
         await Promise.resolve();
         await Promise.resolve();
         expect($("settings-status").textContent).toBe("Loading settings...");
