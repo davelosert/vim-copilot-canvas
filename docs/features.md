@@ -33,7 +33,7 @@ Clicking a heading focuses its source line; preview-only mode opens the source a
 
 ## Quick open
 
-Press **Cmd+P** on macOS or **Ctrl+P** on Windows/Linux, run `:Files`, press `<Space>f` in normal mode, or press `f` in the file explorer to open a fuzzy file finder for the workspace. Mod+P replaces Vim's `Ctrl+p` in the editor; in normal mode `<Space>` acts as a leader prefix, while it still moves right in visual mode.
+Press **Cmd+P** on macOS or **Ctrl+P** on Windows/Linux, run `:Files`, press `<Space>f` in normal mode, or press `f` in the file explorer to open a fuzzy file finder for the workspace. Mod+P replaces Vim's `Ctrl+p` in the editor. In normal mode `<Space>` waits up to a second for `f`; any other key, or the timeout, still moves the cursor right.
 
 Type any part of a path. Matching is fuzzy and smart-case, and it favours file names, word boundaries, and consecutive characters. Files ignored by `.gitignore` (or by `.git` and `node_modules` outside a Git repository) are excluded. With an empty query, the finder lists recently opened files first; recents are remembered per workspace and shared across panels.
 

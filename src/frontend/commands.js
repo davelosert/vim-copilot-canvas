@@ -22,9 +22,10 @@ function register() {
     Vim.defineEx("Files", "Files", action("findFileDeferred"));
     Vim.defineAction("focusExplorer", action("focusExplorer"));
     Vim.defineAction("findFile", action("findFileDeferred"));
-    // codemirror-vim prefers full matches, so the default <Space> -> l would shadow <Space>f in normal mode.
+    // codemirror-vim runs full matches immediately, so the default <Space> -> l would shadow <Space>f in normal mode.
+    // Normal mode falls back to l in createCommands (resolveLeader); other contexts keep the default mapping.
     Vim.unmap("<Space>");
-    Vim.mapCommand("<Space>", "keyToKey", "l", undefined, { context: "visual", toKeys: "l" });
+    for (const context of ["visual", "operatorPending"]) Vim.mapCommand("<Space>", "keyToKey", "l", undefined, { context, toKeys: "l" });
     Vim.mapCommand("<Space>f", "action", "findFile", {}, { context: "normal" });
     Vim.unmap("<C-w>", "normal");
     for (const keys of ["<C-w>h", "<C-w><C-h>", "<C-w>w", "<C-w><C-w>"]) {
@@ -32,6 +33,9 @@ function register() {
     }
 }
 
+// Vim's default 'timeoutlen'.
+const LEADER_TIMEOUT = 1000;
+const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta"]);
 const isMac = (navigator) => /mac|iphone|ipad/i.test(navigator?.userAgentData?.platform ?? navigator?.platform ?? "");
 
 export function createCommands({ document, editor, agent, actions, mac = isMac(document.defaultView?.navigator) }) {
@@ -39,6 +43,17 @@ export function createCommands({ document, editor, agent, actions, mac = isMac(d
     let attached;
     let disposed = false;
     let timer;
+    let leaderTimer;
+    // A normal-mode <Space> waits for <Space>f; any other key, or the timeout, replays it as the default l motion (with count).
+    const resolveLeader = () => {
+        clearTimeout(leaderTimer);
+        const vim = attached?.state.vim;
+        if (!vim || vim.insertMode || vim.visualMode || vim.inputState.operator) return;
+        const pending = /^(\d*)<Space>$/.exec(vim.inputState.keyBuffer.join(""));
+        if (!pending) return;
+        vim.inputState.keyBuffer.length = 0;
+        for (const key of `${pending[1]}l`) Vim.handleKey(attached, key, "mapping");
+    };
     // Let codemirror-vim finish the command (and its refocus) before moving focus elsewhere.
     const defer = (fn) => () => { clearTimeout(timer); timer = setTimeout(() => { if (!disposed) fn(); }); };
     const delayed = defer(() => actions.focusExplorer());
@@ -50,6 +65,13 @@ export function createCommands({ document, editor, agent, actions, mac = isMac(d
     };
     const keydown = (event) => {
         if (!editor.view) return;
+        if (!MODIFIER_KEYS.has(event.key) && !event.isComposing) {
+            const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+            const inEditor = editor.view.contentDOM.contains(event.target);
+            if (plain && inEditor && event.key === "f") clearTimeout(leaderTimer);
+            else resolveLeader();
+            if (plain && !event.shiftKey && inEditor && event.key === " ") leaderTimer = setTimeout(resolveLeader, LEADER_TIMEOUT);
+        }
         const inPanel = event.target.closest?.(".agent-prompt");
         if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "i" &&
             editor.view.dom.contains(event.target)) {
@@ -88,6 +110,7 @@ export function createCommands({ document, editor, agent, actions, mac = isMac(d
         dispose() {
             disposed = true;
             clearTimeout(timer);
+            clearTimeout(leaderTimer);
             if (attached) apps.delete(attached);
             document.removeEventListener("keydown", keydown, true);
         },

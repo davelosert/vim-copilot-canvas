@@ -166,15 +166,26 @@ describe("mounted frontend with real CodeMirror", () => {
         expect($("finder").open).toBe(false);
     });
 
-    it("opens the finder with Space f while Space keeps moving right in visual mode", async () => {
+    it("opens the finder with Space f while Space keeps moving right otherwise", async () => {
         const { app } = await fixture();
+        const head = () => app.editor.view.state.selection.main.head;
         app.editor.focus();
         await key(" f");
         await expect.poll(() => $("finder").open).toBe(true);
         await key("{Escape}");
         await expect.poll(() => app.editor.view.hasFocus).toBe(true);
-        await key("v  ");
-        await expect.poll(() => app.editor.view.state.selection.main.head).toBe(3);
+        expect(head()).toBe(0);
+        await key(" ");
+        expect(head()).toBe(0);
+        await expect.poll(head, { timeout: 3000 }).toBe(1);
+        await key("0 l");
+        expect(head()).toBe(2);
+        await key("02 l");
+        expect(head()).toBe(3);
+        await key("0v  ");
+        await expect.poll(head).toBe(3);
+        await key("{Escape}0d ");
+        await expect.poll(() => app.editor.view.state.doc.toString().startsWith(" Title")).toBe(true);
         expect($("finder").open).toBe(false);
     });
 
