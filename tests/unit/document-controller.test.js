@@ -306,3 +306,125 @@ describe("document ownership and serialized persistence", () => {
         expect(f.documents).toHaveLength(1);
     });
 });
+
+describe("explorer renames and deletions", () => {
+    const setup = (api) => {
+        let text = "initial";
+        const onDocument = vi.fn((value) => { text = value.content; });
+        const onRelocate = vi.fn();
+        const controller = createDocumentController({ api, readText: () => text, onState: vi.fn(), onDocument, onRelocate });
+        controller.initialize(snapshot());
+        onDocument.mockClear();
+        return { controller, onDocument, onRelocate, edit(value) { text = value; controller.edited(); } };
+    };
+
+    it("adopts a renamed path on poll without reloading the editor text", async () => {
+        const moved = snapshot({ path: "/work/docs/b.md", name: "b.md", activePath: "/work/docs/b.md" });
+        const api = { document: vi.fn(async () => moved), open: vi.fn() };
+        const f = setup(api);
+        await f.controller.poll();
+        expect(f.onRelocate).toHaveBeenCalledWith(expect.objectContaining({ path: "/work/docs/b.md", name: "b.md" }));
+        expect(f.onDocument).not.toHaveBeenCalled();
+        expect(api.open).not.toHaveBeenCalled();
+        expect(f.controller.getState().current.path).toBe("/work/docs/b.md");
+        f.controller.dispose();
+    });
+
+    it("adopts a rename arriving on the second poll read without switching documents", async () => {
+        const moved = snapshot({ path: "/work/renamed.md", name: "renamed.md", activePath: "/work/renamed.md" });
+        const api = { document: vi.fn().mockResolvedValueOnce(snapshot()).mockResolvedValue(moved), open: vi.fn() };
+        const f = setup(api);
+        await f.controller.poll();
+        expect(f.controller.getState().current.path).toBe(moved.path);
+        expect(f.onRelocate).toHaveBeenCalledOnce();
+        expect(f.onDocument).not.toHaveBeenCalled();
+        expect(api.open).not.toHaveBeenCalled();
+        f.controller.dispose();
+    });
+
+    it("does not mark a newly opened document deleted or skip saving its edits", async () => {
+        const opening = deferred();
+        const api = {
+            open: vi.fn(() => opening.promise),
+            draft: vi.fn(async (input) => snapshot({ ...input, dirty: true })),
+            save: vi.fn(async () => snapshot({ path: "/work/b.md", name: "b.md", content: "B edits" })),
+        };
+        const f = setup(api);
+        const switching = f.controller.open("/work/b.md");
+        const deletion = f.controller.markDeleted("/work/a.md", "/work/c.md");
+        opening.resolve(snapshot({ path: "/work/b.md", name: "b.md", content: "B" }));
+        await switching;
+        f.edit("B edits");
+        expect(await deletion).toBe(false);
+        expect(f.controller.getState()).toMatchObject({ deleted: false, current: { path: "/work/b.md" } });
+        await f.controller.save();
+        expect(api.open).toHaveBeenCalledTimes(1);
+        expect(api.draft).toHaveBeenCalledWith(expect.objectContaining({ path: "/work/b.md", content: "B edits" }));
+        expect(api.save).toHaveBeenCalledOnce();
+        f.controller.dispose();
+    });
+
+    it("opens the deletion fallback atomically before the next queued document switch", async () => {
+        const api = { open: vi.fn(async ({ path }) => snapshot({ path, name: path.split("/").pop() })) };
+        const f = setup(api);
+        const deletion = f.controller.markDeleted("/work", "/other/fallback.md");
+        const switching = f.controller.open("/other/new.md");
+        expect(await deletion).toBe(true);
+        await switching;
+        expect(api.open.mock.calls.map(([input]) => input.path)).toEqual(["/other/fallback.md", "/other/new.md"]);
+        expect(f.controller.getState().current.path).toBe("/other/new.md");
+        f.controller.dispose();
+    });
+
+    it("keeps the active buffer saveable when opening a deleted destination fails", async () => {
+        vi.useFakeTimers();
+        const api = {
+            open: vi.fn(async () => { throw Object.assign(new Error("gone"), { code: "file_deleted" }); }),
+            document: vi.fn(async () => snapshot()),
+            draft: vi.fn(async (input) => snapshot({ ...input, dirty: true })),
+            save: vi.fn(async () => snapshot({ content: "Retained edits" })),
+        };
+        const f = setup(api);
+        await expect(f.controller.open("/work/deleted.md")).rejects.toMatchObject({ code: "file_deleted" });
+        expect(f.controller.getState()).toMatchObject({ deleted: false, current: { path: "/work/a.md" } });
+        await f.controller.poll();
+        expect(api.document).toHaveBeenCalled();
+        f.edit("Retained edits");
+        await vi.advanceTimersByTimeAsync(200);
+        expect(api.draft).toHaveBeenCalledWith(expect.objectContaining({ path: "/work/a.md", content: "Retained edits" }));
+        expect(api.save).toHaveBeenCalledOnce();
+        f.controller.dispose();
+    });
+
+    it("stops autosave and polling for a deleted file until another file opens", async () => {
+        vi.useFakeTimers();
+        const api = {
+            document: vi.fn(async () => { throw Object.assign(new Error("gone"), { code: "file_deleted" }); }),
+            draft: vi.fn(), save: vi.fn(),
+            open: vi.fn(async ({ path }) => snapshot({ path, name: "c.md", content: "other" })),
+        };
+        const f = setup(api);
+        await expect(f.controller.poll()).rejects.toMatchObject({ code: "file_deleted" });
+        expect(f.controller.getState()).toMatchObject({ deleted: true, status: "File deleted" });
+        f.edit("typed after deletion");
+        await vi.advanceTimersByTimeAsync(500);
+        await f.controller.poll();
+        expect(api.document).toHaveBeenCalledTimes(1);
+        expect(api.draft).not.toHaveBeenCalled();
+        await f.controller.open("/work/c.md");
+        expect(api.draft).not.toHaveBeenCalled();
+        expect(f.controller.getState()).toMatchObject({ deleted: false, current: { path: "/work/c.md" } });
+        f.controller.dispose();
+    });
+
+    it("can be marked deleted by the panel that removed the file", async () => {
+        const api = { document: vi.fn(), draft: vi.fn(), save: vi.fn() };
+        const f = setup(api);
+        await f.controller.markDeleted();
+        f.edit("kept locally");
+        await f.controller.poll();
+        expect(api.document).not.toHaveBeenCalled();
+        expect(f.controller.getState().status).toBe("File deleted");
+        f.controller.dispose();
+    });
+});

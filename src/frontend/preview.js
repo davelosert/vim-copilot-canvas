@@ -125,11 +125,14 @@ export function createPreview({ element, words, readText, renderSource, loadImag
     };
     element.addEventListener("click", click);
     return {
-        document(snapshot, { reset = false } = {}) {
+        document(snapshot, { reset = false, relocate = false } = {}) {
             invalidate();
-            resetPosition = resetPosition || reset || path !== snapshot.path;
+            if (relocate && path !== snapshot.path) {
+                for (const block of blocks) block.html = null;
+            }
+            resetPosition = resetPosition || reset || (!relocate && path !== snapshot.path);
             if (resetPosition) element.scrollTop = 0;
-            if (path !== snapshot.path || !isMarkdown(snapshot.name)) {
+            if ((!relocate && path !== snapshot.path) || !isMarkdown(snapshot.name)) {
                 element.replaceChildren();
                 blocks = [];
                 words.textContent = "";

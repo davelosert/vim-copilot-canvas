@@ -32,9 +32,19 @@
       <button id="history-tab" role="tab" aria-selected="false" aria-controls="history-panel" tabindex="-1">History</button>
     </div>
     <div id="files-panel" class="explorer-panel" role="tabpanel" aria-labelledby="files-tab">
-    <div class="pane-label explorer-label"><span id="explorer-root" class="explorer-root">FILES</span><span class="explorer-actions"><button id="collapse-tree" class="mini" title="Collapse all" aria-label="Collapse all folders">⊟</button><button id="refresh-tree" class="mini" title="Refresh (R)" aria-label="Refresh file tree">↻</button></span></div>
+    <div class="pane-label explorer-label"><span id="explorer-root" class="explorer-root">FILES</span><span class="explorer-actions"><button id="new-file" class="mini" title="New file (a)" aria-label="New file"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 1.75H4a1 1 0 0 0-1 1v11.5a1 1 0 0 0 1 1h4.5M9 1.75 12.5 5v3.5M9 1.75V5h3.5M12 10.5v4M10 12.5h4"/></svg></button><button id="new-folder" class="mini" title="New folder (a, end with /)" aria-label="New folder"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 13.75H2.75a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h3.5l1.5 1.5h5.5a1 1 0 0 1 1 1V8.5M12 10v4M10 12h4"/></svg></button><button id="collapse-tree" class="mini" title="Collapse all" aria-label="Collapse all folders">⊟</button><button id="refresh-tree" class="mini" title="Refresh (R)" aria-label="Refresh file tree">↻</button></span></div>
     <div id="tree" role="tree" tabindex="0" aria-label="Files"></div>
-    <div class="explorer-hint"><kbd>j</kbd><kbd>k</kbd> move · <kbd>l</kbd> open · <kbd>h</kbd> close · <kbd>f</kbd> find · <kbd>⌃w l</kbd> editor</div>
+    <form id="tree-prompt" class="tree-prompt" hidden><label id="tree-prompt-label" for="tree-prompt-input"></label><input id="tree-prompt-input" type="text" autocomplete="off" spellcheck="false" aria-describedby="tree-prompt-hint"><span id="tree-prompt-hint" class="tree-prompt-hint">Path relative to the explorer root · <kbd>Enter</kbd> confirm · <kbd>Esc</kbd> cancel</span></form>
+    <div id="tree-menu" class="tree-menu" role="menu" aria-label="File actions" hidden>
+      <button type="button" role="menuitem" data-action="new-file">New file…<kbd>a</kbd></button>
+      <button type="button" role="menuitem" data-action="new-folder">New folder…<kbd>a …/</kbd></button>
+      <button type="button" role="menuitem" data-action="rename">Rename / move…<kbd>r</kbd></button>
+      <button type="button" role="menuitem" data-action="cut">Cut<kbd>x</kbd></button>
+      <button type="button" role="menuitem" data-action="copy">Copy<kbd>c</kbd></button>
+      <button type="button" role="menuitem" data-action="paste">Paste<kbd>p</kbd></button>
+      <button type="button" role="menuitem" data-action="delete" class="danger">Delete…<kbd>d</kbd></button>
+    </div>
+    <div class="explorer-hint"><kbd>j</kbd><kbd>k</kbd> move · <kbd>l</kbd> open · <kbd>h</kbd> close · <kbd>f</kbd> find · <kbd>a</kbd><kbd>r</kbd><kbd>d</kbd> new/rename/delete · <kbd>⌃w l</kbd> editor</div>
     </div>
     <div id="outline-panel" class="explorer-panel" role="tabpanel" aria-labelledby="outline-tab" hidden>
       <div class="pane-label explorer-label"><span id="outline-name" class="explorer-root">OUTLINE</span></div>
@@ -148,6 +158,9 @@
         <kbd>gg / G</kbd><span>First / last entry</span><kbd>Ctrl+d / Ctrl+u</kbd><span>Half page down / up</span>
         <kbd>R</kbd><span>Refresh tree</span><kbd>q / :Lex</kbd><span>Hide / toggle explorer</span>
         <kbd>:e path</kbd><span>Open a file relative to the root</span><kbd>Click</kbd><span>Open file / toggle folder</span>
+        <kbd>a</kbd><span>New file (end with / for a folder)</span><kbd>r</kbd><span>Rename or move (edit the path)</span>
+        <kbd>d</kbd><span>Delete file or folder</span><kbd>x / c / p</kbd><span>Cut / copy / paste into folder</span>
+        <kbd>Right-click</kbd><span>File actions menu</span><kbd>Drag</kbd><span>Move onto a folder</span>
       </div>
     </section>
     <section class="shortcut-section">

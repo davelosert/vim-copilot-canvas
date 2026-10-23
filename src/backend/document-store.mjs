@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, realpath, stat } from "node:fs/promises";
-import { basename, isAbsolute, join } from "node:path";
+import { mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import { basename, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EditorError } from "./errors.mjs";
 import { MAX_BYTES, atomicWrite, diskText, writeNew } from "./files.mjs";
@@ -14,11 +14,17 @@ export class DocumentStore {
         this.artifacts = artifacts;
         this.welcomePath = welcomePath;
         this.documents = new Map();
-        this.locks = new Map();
+        this.operations = Promise.resolve();
         this.history = history;
+        this.moves = new Map();
+        this.deleted = new Set();
     }
 
     async open(filePath) {
+        return this.locked(null, () => this.openUnlocked(filePath));
+    }
+
+    async openUnlocked(filePath) {
         await mkdir(join(this.artifacts, "drafts"), { recursive: true, mode: 0o700 });
         if (!filePath) {
             filePath = join(this.artifacts, "welcome.md");
@@ -36,44 +42,122 @@ export class DocumentStore {
         }
         if (!isAbsolute(filePath)) throw new EditorError("absolute_path_required", "Provide an absolute file path.", 400);
         const path = await realpath(filePath);
-        return this.locked({ path }, async () => {
-            if (this.documents.has(path)) return this.documents.get(path);
-            const baseContent = await diskText(path);
-            const draftPath = join(this.artifacts, "drafts", `${hash(path)}.json`);
-            let draft;
-            try {
-                draft = JSON.parse(await readFile(draftPath, "utf8"));
-                if (draft.path !== path || typeof draft.content !== "string" ||
-                    typeof draft.baseContent !== "string" || typeof draft.revision !== "string") {
-                    throw new Error(`Invalid saved draft: ${draftPath}`);
+        // A file now exists here again, so it no longer redirects to a renamed or deleted document.
+        this.moves.delete(path);
+        this.deleted.delete(path);
+        if (this.documents.has(path)) return this.documents.get(path);
+        const baseContent = await diskText(path);
+        const draftPath = join(this.artifacts, "drafts", `${hash(path)}.json`);
+        let draft;
+        try {
+            draft = await this.readDraft(draftPath);
+            if (draft.path !== path) throw new Error(`Invalid saved draft: ${draftPath}`);
+        } catch (error) {
+            if (error.code !== "ENOENT") throw error;
+        }
+        const document = {
+            path, name: basename(path), draftPath,
+            baseContent: draft ? draft.baseContent : baseContent,
+            content: draft ? draft.content : baseContent,
+            revision: draft?.revision ?? randomUUID(),
+        };
+        await this.history.observe(path, baseContent);
+        if (draft && draft.content !== draft.baseContent) {
+            await this.history.local(path, draft.baseContent, draft.content, draft.revision);
+        }
+        this.documents.set(path, document);
+        return document;
+    }
+
+    locked(document, operation) {
+        // Opening and path changes share the same queue as writes, including requests
+        // already waiting under a document's former name.
+        const result = this.operations.catch(() => {}).then(() => {
+            if (document) this.checkDocument(document);
+            return operation();
+        });
+        this.operations = result;
+        return result;
+    }
+
+    checkDocument(document) {
+        if (this.documents.get(document.path) !== document) {
+            throw new EditorError("file_deleted", `${document.name} was deleted. Its text remains in this editor until you open another file.`, 410);
+        }
+    }
+
+    async readDraft(draftPath) {
+        const draft = JSON.parse(await readFile(draftPath, "utf8"));
+        if (typeof draft.path !== "string" || !isAbsolute(draft.path) ||
+            basename(draftPath) !== `${hash(draft.path)}.json` || typeof draft.content !== "string" ||
+            typeof draft.baseContent !== "string" || typeof draft.revision !== "string") {
+            throw new Error(`Invalid saved draft: ${draftPath}`);
+        }
+        return draft;
+    }
+
+    /** Current path of a document that may have been renamed or moved through the explorer. */
+    successor(path) {
+        const seen = new Set();
+        while (this.moves.has(path) && !seen.has(path)) {
+            seen.add(path);
+            path = this.moves.get(path);
+        }
+        return path;
+    }
+
+    isDeleted(path) { return this.deleted.has(path); }
+
+    /**
+     * Include lazy recovery records as well as cached documents in path operations.
+     */
+    async affecting(path, operation) {
+        return this.locked(null, async () => {
+            const inside = (candidate) => candidate === path || candidate.startsWith(path.endsWith(sep) ? path : path + sep);
+            const documents = new Map([...this.documents].filter(([key]) => inside(key)));
+            const directory = join(this.artifacts, "drafts");
+            await mkdir(directory, { recursive: true, mode: 0o700 });
+            for (const entry of await readdir(directory, { withFileTypes: true })) {
+                if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+                const draftPath = join(directory, entry.name);
+                const draft = await this.readDraft(draftPath);
+                if (inside(draft.path) && !documents.has(draft.path)) {
+                    documents.set(draft.path, { ...draft, name: basename(draft.path), draftPath });
                 }
-            } catch (error) {
-                if (error.code !== "ENOENT") throw error;
             }
-            const document = {
-                path, name: basename(path), draftPath,
-                baseContent: draft ? draft.baseContent : baseContent,
-                content: draft ? draft.content : baseContent,
-                revision: draft?.revision ?? randomUUID(),
-            };
-            await this.history.observe(path, baseContent);
-            if (draft && draft.content !== draft.baseContent) {
-                await this.history.local(path, draft.baseContent, draft.content, draft.revision);
-            }
-            this.documents.set(path, document);
-            return document;
+            return operation([...documents.values()]);
         });
     }
 
-    async locked(document, operation) {
-        const previous = this.locks.get(document.path) ?? Promise.resolve();
-        const result = previous.catch(() => {}).then(operation);
-        this.locks.set(document.path, result);
-        try {
-            return await result;
-        } finally {
-            if (this.locks.get(document.path) === result) this.locks.delete(document.path);
-        }
+    /** Move `from` to `to` with `rename`, carrying open documents and their drafts along. */
+    async relocate(from, to, rename) {
+        return this.affecting(from, async (documents) => {
+            await rename();
+            for (const document of documents) {
+                const previous = { path: document.path, draftPath: document.draftPath };
+                const path = to + document.path.slice(from.length);
+                Object.assign(document, { path, name: basename(path), draftPath: join(this.artifacts, "drafts", `${hash(path)}.json`) });
+                if (this.documents.delete(previous.path)) this.documents.set(path, document);
+                this.moves.set(previous.path, path);
+                this.moves.delete(path);
+                this.deleted.delete(path);
+                await this.persist(document);
+                await rm(previous.draftPath, { force: true });
+            }
+        });
+    }
+
+    /** Delete `path` with `remove`, discarding open documents and drafts below it. */
+    async remove(path, remove) {
+        return this.affecting(path, async (documents) => {
+            await remove();
+            for (const document of documents) {
+                this.documents.delete(document.path);
+                this.moves.delete(document.path);
+                this.deleted.add(document.path);
+                await rm(document.draftPath, { force: true });
+            }
+        });
     }
 
     async persist(document) {

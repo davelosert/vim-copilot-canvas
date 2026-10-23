@@ -70,6 +70,34 @@ it("reports failed image loads and clears images when switching to a non-Markdow
     preview.dispose();
 });
 
+it.each(["loaded", "pending"])("rehydrates %s images after a relocation without clearing the preview early", async (state) => {
+    const html = renderMarkdown("![Logo](logo.svg)");
+    let finishRender;
+    const renderSource = vi.fn().mockResolvedValueOnce({ html, count: 1 })
+        .mockImplementationOnce(() => new Promise((resolve) => { finishRender = resolve; }));
+    const { element, requests, preview, onError } = fixture({ renderSource });
+    preview.document({ name: "one.md", path: "/work/one.md" });
+    await expect.poll(() => requests.length).toBe(1);
+    const previous = element.querySelector("img");
+    if (state === "loaded") {
+        requests[0].resolve({ url: "data:image/png;base64,old" });
+        await Promise.resolve();
+    }
+    preview.document({ name: "one.md", path: "/work/docs/one.md" }, { relocate: true });
+    expect(element.querySelector("img")).toBe(previous);
+    finishRender({ html, count: 1 });
+    await expect.poll(() => requests.length).toBe(2);
+    expect(requests[1]).toMatchObject({ path: "/work/docs/one.md", source: "logo.svg" });
+    const replacement = element.querySelector("img");
+    expect(replacement).not.toBe(previous);
+    if (state === "pending") requests[0].reject(new Error("Stale response"));
+    requests[1].resolve({ url: "data:image/png;base64,new" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(replacement.getAttribute("src")).toBe("data:image/png;base64,new");
+    expect(onError).not.toHaveBeenCalled();
+});
+
 it("does not read or render hidden previews and catches up once with the latest text", async () => {
     const renderSource = vi.fn(async () => ({ html: "<p>Latest</p>", count: 1 }));
     const { element, preview, readText, setText } = fixture({ renderSource, visible: false });

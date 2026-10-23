@@ -4,13 +4,14 @@ const conflict = () => Object.assign(new Error("The file or draft changed while 
  * readText reads the live buffer; onDocument must apply text synchronously.
  */
 export function createDocumentController({ api, readText, onState = () => {}, onDocument = () => {},
-    onPoll = async () => {}, onReloading = () => {} }) {
+    onPoll = async () => {}, onWorkspacePoll = async () => {}, onReloading = () => {}, onRelocate = () => {} }) {
     let current = null;
     let observedDiskHash = null;
     let localVersion = 0;
     let persistedVersion = 0;
     let blocked = false;
     let saveFailed = false;
+    let deleted = false;
     let disposed = false;
     let saving = false;
     let status = "";
@@ -22,7 +23,7 @@ export function createDocumentController({ api, readText, onState = () => {}, on
     const pending = () => localVersion !== persistedVersion;
     const getState = () => ({
         current: current && { ...current }, localVersion, persistedVersion,
-        localPending: pending(), blocked, saveFailed, saving, status, error,
+        localPending: pending(), blocked, saveFailed, saving, status, error, deleted,
         dirty: pending() || Boolean(current?.dirty),
     });
     const emit = () => { if (!disposed) onState(getState()); };
@@ -32,7 +33,11 @@ export function createDocumentController({ api, readText, onState = () => {}, on
         if (pending() || current?.dirty) saveFailed = true;
         if (reason.code === "draft_conflict") blocked = true;
         if (reason.code === "disk_conflict" && current) current = { ...current, conflict: true };
-        status = blocked ? "Draft conflict" : "Not synced";
+        if (reason.code === "file_deleted" && (!reason.documentPath || reason.documentPath === current.path)) {
+            deleted = true;
+            cancelScheduledSave();
+        }
+        status = deleted ? "File deleted" : blocked ? "Draft conflict" : "Not synced";
         emit();
     };
     const enqueue = (operation) => {
@@ -46,14 +51,25 @@ export function createDocumentController({ api, readText, onState = () => {}, on
     };
     function apply(snapshot, kind) {
         if (disposed) return;
+        const moved = kind !== "switch" && current && snapshot.path !== current.path;
         current = snapshot;
         if (!snapshot.conflict) observedDiskHash = snapshot.diskHash;
         localVersion = persistedVersion = 0;
-        blocked = saveFailed = false;
+        blocked = saveFailed = deleted = false;
         error = null;
         status = snapshot.dirty ? "Draft recovered" : "All changes saved";
         onDocument({ ...snapshot }, { kind });
+        if (moved) onRelocate({ ...snapshot });
         emit();
+    }
+    // The server follows explorer renames, so any response may name the document's new path.
+    function take(snapshot) {
+        const moved = current && snapshot.path !== current.path;
+        current = snapshot;
+        if (moved && !disposed) {
+            onRelocate({ ...snapshot });
+            emit();
+        }
     }
     async function reloadChangedDisk(latest) {
         if (latest.diskHash === observedDiskHash && !latest.conflict) return false;
@@ -83,7 +99,7 @@ export function createDocumentController({ api, readText, onState = () => {}, on
             status = "Recovering draft...";
             const snapshot = await api.draft({ path: current.path, revision: current.revision, content });
             if (disposed) return;
-            current = snapshot;
+            take(snapshot);
             persistedVersion = version;
             status = pending() ? "Draft pending" : "Draft recovered";
             if (!drain) break;
@@ -101,7 +117,7 @@ export function createDocumentController({ api, readText, onState = () => {}, on
                     try {
                         const snapshot = await api.save({ path: current.path, revision: current.revision });
                         if (disposed) return;
-                        current = snapshot;
+                        take(snapshot);
                         // The server verified disk matched our base before writing, so this hash is our own write.
                         if (!snapshot.conflict) observedDiskHash = snapshot.diskHash;
                     } catch (reason) {
@@ -126,7 +142,7 @@ export function createDocumentController({ api, readText, onState = () => {}, on
         if (recovering) emit();
     }
     function scheduleSave() {
-        if (saveTimer !== null || autosave || disposed) return;
+        if (saveTimer !== null || autosave || disposed || deleted) return;
         // Bound write frequency even during continuous typing; read the latest text when the batch runs.
         saveTimer = setTimeout(() => {
             saveTimer = null;
@@ -138,15 +154,22 @@ export function createDocumentController({ api, readText, onState = () => {}, on
         }, 150);
     }
     async function openInternal(path, { discard = false, fromServer = false } = {}) {
-        if (path === current.path) return true;
-        if (blocked) {
+        if (path === current.path && !deleted) return true;
+        if (deleted) {
+            // The file is gone; its remaining text cannot be saved anywhere.
+        } else if (blocked) {
             if (fromServer || !discard) return false;
         } else {
             await flushDraft();
             if (!current.conflict) await flushChanges();
         }
         // Do not clear conflict ownership until opening actually succeeds.
-        const snapshot = await api.open({ path });
+        let snapshot;
+        try { snapshot = await api.open({ path }); }
+        catch (reason) {
+            reason.documentPath = path;
+            throw reason;
+        }
         apply(snapshot, "switch");
         if (snapshot.dirty && !snapshot.conflict) scheduleSave();
         return !disposed;
@@ -161,7 +184,7 @@ export function createDocumentController({ api, readText, onState = () => {}, on
         edited() {
             if (disposed) return;
             localVersion++;
-            status = "Draft pending";
+            if (!deleted) status = "Draft pending";
             scheduleSave();
         },
         save: () => { cancelScheduledSave(); return enqueue(flushChanges); },
@@ -179,11 +202,24 @@ export function createDocumentController({ api, readText, onState = () => {}, on
             status = "Disk version loaded";
             emit();
         }),
+        markDeleted: (path = current.path, fallback) => enqueue(async () => {
+            if (current.path !== path && !current.path.startsWith(`${path}/`) && !current.path.startsWith(`${path}\\`)) return false;
+            deleted = true;
+            cancelScheduledSave();
+            status = "File deleted";
+            emit();
+            if (fallback) await openInternal(fallback);
+            return true;
+        }),
         poll: () => enqueue(async () => {
+            await onWorkspacePoll();
+            if (disposed) return;
+            if (deleted) return;
             if (!blocked && pending()) await flushDraft();
             const versionAtPollStart = localVersion;
             let snapshot = await api.document(current.path);
             if (disposed) return;
+            if (snapshot.path !== current.path) take({ ...current, path: snapshot.path, name: snapshot.name });
             if (snapshot.activePath && snapshot.activePath !== current.path) {
                 return openInternal(snapshot.activePath, { fromServer: true });
             }
@@ -210,6 +246,7 @@ export function createDocumentController({ api, readText, onState = () => {}, on
             if (disposed) return;
             snapshot = await api.document(current.path);
             if (disposed) return;
+            if (snapshot.path !== current.path) take({ ...current, path: snapshot.path, name: snapshot.name });
             if (snapshot.activePath && snapshot.activePath !== current.path) {
                 return openInternal(snapshot.activePath, { fromServer: true });
             }
@@ -221,7 +258,7 @@ export function createDocumentController({ api, readText, onState = () => {}, on
                 apply(snapshot, "replace");
                 if (snapshot.dirty && !snapshot.conflict) scheduleSave();
             } else {
-                current = snapshot;
+                take(snapshot);
                 emit();
             }
         }),

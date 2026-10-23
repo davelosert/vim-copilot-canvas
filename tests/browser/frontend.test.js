@@ -59,6 +59,13 @@ function fakeApi() {
             current = { path: target, name: target.split("/").pop(), content: files.get(target), revision: `r${++revision}`, diskHash: "d0", dirty: false, conflict: false };
             return { ...current };
         }
+        if (path === "files/move") {
+            const target = input.to.startsWith("/") ? input.to : `/work/${input.to}`;
+            files.set(target, files.get(input.from));
+            files.delete(input.from);
+            if (current.path === input.from) current = { ...current, path: target, name: target.split("/").pop() };
+            return { from: input.from, path: target, type: "file" };
+        }
         if (path.startsWith("tree")) return tree();
         if (path === "files") return { root: "/work", separator: "/", files: [...files.keys()].map((file) => file.slice(6)), truncated: false, recent: ["b.js"] };
         if (path === "review") return { items: [...items] };
@@ -871,6 +878,42 @@ describe("mounted frontend with real CodeMirror", () => {
         await expect.poll(() => Math.abs(scrollProgress(preview) - scrollProgress(source))).toBeLessThan(0.01);
     });
 
+    it("enables scroll synchronization when an open text file is renamed to Markdown", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/b.js", longMarkdown);
+        await app.controller.open("/work/b.js");
+        const source = app.editor.view.scrollDOM, preview = $("preview");
+        await nextFrames();
+        scrollToProgress(source, 0.4);
+        await nextFrames();
+        const before = source.scrollTop;
+        const state = app.editor.view.state;
+        await showSidebar();
+        $("tree").focus();
+        await key("r");
+        await expect.poll(() => document.activeElement.id).toBe("tree-prompt-input");
+        $("tree-prompt-input").value = "b.md";
+        await key("{Enter}");
+        await expect.poll(() => app.controller.getState().current.name).toBe("b.md");
+        await expect.poll(() => preview.querySelectorAll("h2").length).toBe(100);
+        await nextFrames();
+        expect(Math.abs(source.scrollTop - before)).toBeLessThan(2);
+        expect(app.editor.view.state.doc).toBe(state.doc);
+        scrollToProgress(source, 0.7);
+        await expect.poll(() => Math.abs(scrollProgress(preview) - scrollProgress(source))).toBeLessThan(0.005);
+        await nextFrames();
+        const sourceTop = source.scrollTop, previewTop = preview.scrollTop;
+        $("tree").focus();
+        await key("r");
+        await expect.poll(() => document.activeElement.id).toBe("tree-prompt-input");
+        $("tree-prompt-input").value = "renamed.md";
+        await key("{Enter}");
+        await expect.poll(() => app.controller.getState().current.name).toBe("renamed.md");
+        await nextFrames();
+        expect(Math.abs(source.scrollTop - sourceTop)).toBeLessThan(2);
+        expect(Math.abs(preview.scrollTop - previewTop)).toBeLessThan(2);
+    });
+
     it("resets scrolling on file switches and handles documents without overflow", async () => {
         const { app, files } = await fixture();
         files.set("/work/a.md", longMarkdown);
@@ -1590,6 +1633,29 @@ describe("mounted frontend with real CodeMirror", () => {
         expect($("notice").hidden).toBe(true);
     });
 
+    it("continues refreshing workspace requests after the active document is deleted", async () => {
+        const interval = vi.spyOn(window, "setInterval");
+        const { app, api } = await fixture();
+        const tick = interval.mock.calls.at(-1)[0];
+        await api("review/add", { path: "/work/a.md", prompt: "Deleted comment" });
+        tick();
+        await expect.poll(() => $("review-count").textContent).toBe("1 pending request");
+
+        const original = api.getMockImplementation();
+        api.mockImplementation((path, input) => path.startsWith("document")
+            ? Promise.reject(Object.assign(new Error("File deleted"), { code: "file_deleted" }))
+            : original(path, input));
+        await api("review/clear", {});
+        tick();
+        await expect.poll(() => app.controller.getState().deleted).toBe(true);
+        await expect.poll(() => $("review-count").textContent).toBe("0 pending requests");
+        const reads = api.mock.calls.filter(([path]) => path.startsWith("document")).length;
+        await api("review/add", { path: "/work/b.js", prompt: "Surviving comment" });
+        tick();
+        await expect.poll(() => $("review-list").textContent).toContain("Surviving comment");
+        expect(api.mock.calls.filter(([path]) => path.startsWith("document"))).toHaveLength(reads);
+    });
+
     it("disposes listeners, timers, editors and prompts and can remount without duplicate actions", async () => {
         const interval = vi.spyOn(window, "setInterval");
         const clear = vi.spyOn(window, "clearInterval");
@@ -1658,6 +1724,36 @@ describe("mounted frontend with real CodeMirror", () => {
     });
 });
 
+it("copies Windows paths using only the filename and the selected destination folder", async () => {
+    const tree = document.createElement("div");
+    tree.tabIndex = 0;
+    document.body.append(tree);
+    const root = "C:\\work", source = `${root}\\a.md`, folder = `${root}\\docs`, target = `${folder}\\a.md`;
+    let copied = false;
+    const api = vi.fn(async (path) => {
+        if (path === "files/copy") {
+            copied = true;
+            return { from: source, path: target, type: "file" };
+        }
+        if (decodeURIComponent(path).includes(folder)) {
+            return { entries: copied ? [{ path: target, name: "a.md", type: "file" }] : [] };
+        }
+        return { root, rootName: "work", entries: [
+            { path: folder, name: "docs", type: "directory" },
+            { path: source, name: "a.md", type: "file" },
+        ] };
+    });
+    const onError = vi.fn();
+    const explorer = createExplorer({ tree, api, onError, onOpen: vi.fn(), onLeave: vi.fn(), onHide: vi.fn() });
+    mounted.push(explorer);
+    await explorer.init(source);
+    tree.focus();
+    await userEvent.keyboard("ckp");
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("files/copy", { from: source, to: "docs/a.md" }));
+    await vi.waitFor(() => expect([...tree.querySelectorAll(".tree-row")].some((row) => row.dataset.path === target)).toBe(true));
+    expect(onError).not.toHaveBeenCalled();
+});
+
 it("scopes explorer rows to its supplied root and stops late loads after disposal", async () => {
     const first = document.createElement("div"), second = document.createElement("div");
     first.tabIndex = second.tabIndex = 0;
@@ -1679,4 +1775,131 @@ it("scopes explorer rows to its supplied root and stops late loads after disposa
     pending.resolve({ root: "/work", rootName: "work", entries: [] });
     await loading;
     expect(second.querySelector(".tree-row").dataset.path).toBe("/work/b.md");
+});
+
+it("runs explorer file operations from keys, the inline prompt and the context menu", async () => {
+    const files = new Map([["/work/a.md", "file"], ["/work/docs", "directory"], ["/work/docs/b.md", "file"]]);
+    const calls = [];
+    const parent = (path) => path.slice(0, path.lastIndexOf("/"));
+    const absolute = (path) => path.startsWith("/") ? path : `/work/${path}`;
+    const add = (path, type) => {
+        for (let dir = parent(path); dir !== "/work"; dir = parent(dir)) files.set(dir, "directory");
+        files.set(path, type);
+    };
+    const api = vi.fn(async (path, body) => {
+        if (path.startsWith("tree")) {
+            const dir = new URLSearchParams(path.split("?")[1] ?? "").get("dir") ?? "/work";
+            const entries = [...files].filter(([key]) => parent(key) === dir).map(([key, type]) => ({ path: key, name: key.split("/").pop(), type }));
+            return { root: "/work", rootName: "work", entries };
+        }
+        calls.push([path, body]);
+        if (path === "files/create") { add(absolute(body.path), body.type); return { path: absolute(body.path), type: body.type }; }
+        if (path === "files/move" || path === "files/copy") {
+            const from = absolute(body.from), to = absolute(body.to);
+            if (files.has(to)) throw Object.assign(new Error("exists"), { code: "already_exists" });
+            for (const [key, type] of [...files]) {
+                if (key !== from && !key.startsWith(`${from}/`)) continue;
+                if (path === "files/move") files.delete(key);
+                add(to + key.slice(from.length), type);
+            }
+            return { from, path: to, type: "file" };
+        }
+        if (path === "files/delete") { files.delete(absolute(body.path)); return { path: absolute(body.path), type: "file", fallback: null }; }
+        throw new Error(`Unexpected ${path}`);
+    });
+    document.body.insertAdjacentHTML("beforeend", `<div id="op-tree" tabindex="0"></div>
+        <form id="op-prompt" hidden><label id="op-label"></label><input id="op-input"></form>
+        <div id="op-menu" hidden>${["new-file", "new-folder", "rename", "cut", "copy", "paste", "delete"].map((action) => `<button type="button" data-action="${action}">${action}</button>`).join("")}</div>`);
+    const tree = document.getElementById("op-tree"), input = document.getElementById("op-input");
+    const onChange = vi.fn(), confirm = vi.fn(() => true), onError = vi.fn();
+    const explorer = createExplorer({
+        tree, api, onOpen: vi.fn(), onLeave: vi.fn(), onHide: vi.fn(), onError, onChange, confirm,
+        prompt: { form: document.getElementById("op-prompt"), label: document.getElementById("op-label"), input },
+        menu: document.getElementById("op-menu"),
+    });
+    mounted.push(explorer);
+    await explorer.init("/work/a.md");
+    const row = (path) => tree.querySelector(`.tree-row[data-path="${path}"]`);
+    const settled = () => vi.waitFor(() => expect(document.getElementById("op-prompt").hidden).toBe(true));
+
+    tree.focus();
+    await userEvent.keyboard("a");
+    await vi.waitFor(() => expect(document.activeElement).toBe(input));
+    expect(input.value).toBe("");
+    await userEvent.keyboard("notes/new.md{Enter}");
+    await vi.waitFor(() => expect(row("/work/notes/new.md")).not.toBeNull());
+    expect(calls.at(-1)).toEqual(["files/create", { path: "notes/new.md", type: "file" }]);
+    expect(onChange).toHaveBeenLastCalledWith({ action: "create", path: "/work/notes/new.md", type: "file" });
+    expect(row("/work/notes/new.md").getAttribute("aria-selected")).toBe("true");
+
+    tree.focus();
+    await userEvent.keyboard("r");
+    await vi.waitFor(() => expect(input.value).toBe("notes/new.md"));
+    expect(input.value.slice(input.selectionStart, input.selectionEnd)).toBe("new");
+    input.value = "a.md";
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(document.getElementById("op-label").textContent).toContain("already exists"));
+    expect(input.value).toBe("a.md");
+    input.value = "notes/renamed.md";
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(row("/work/notes/renamed.md")).not.toBeNull());
+    expect(row("/work/notes/new.md")).toBeNull();
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ action: "move", from: "/work/notes/new.md", path: "/work/notes/renamed.md" }));
+
+    tree.focus();
+    await userEvent.keyboard("r");
+    await vi.waitFor(() => expect(document.activeElement).toBe(input));
+    await userEvent.keyboard("{Escape}");
+    await settled();
+    expect(document.activeElement).toBe(tree);
+
+    await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+    const menu = document.getElementById("op-menu");
+    expect(menu.hidden).toBe(false);
+    for (const action of ["rename", "delete", "cut", "copy"]) {
+        expect(menu.querySelector(`[data-action="${action}"]`).hidden).toBe(false);
+    }
+    await userEvent.keyboard("{Escape}");
+    row("/work/docs").click();
+    tree.focus();
+    tree.dispatchEvent(new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true }));
+    expect(menu.hidden).toBe(false);
+    menu.querySelector('[data-action="new-file"]').click();
+    await vi.waitFor(() => expect(input.value).toBe("docs/"));
+    input.value = "docs/keyboard.md";
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(row("/work/docs/keyboard.md")).not.toBeNull());
+
+    row("/work/notes/renamed.md").click();
+    tree.focus();
+    await userEvent.keyboard("x");
+    expect(row("/work/notes/renamed.md").dataset.clipboard).toBe("cut");
+    row("/work/docs").click();
+    tree.focus();
+    tree.dispatchEvent(new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true }));
+    menu.querySelector('[data-action="paste"]').click();
+    await vi.waitFor(() => expect(row("/work/docs/renamed.md")).not.toBeNull());
+    expect(menu.hidden).toBe(true);
+    expect(calls.at(-1)).toEqual(["files/move", { from: "/work/notes/renamed.md", to: "docs/renamed.md" }]);
+    expect(tree.querySelector("[data-clipboard]")).toBeNull();
+
+    row("/work/a.md").click();
+    tree.focus();
+    await userEvent.keyboard("c");
+    expect(row("/work/a.md").dataset.clipboard).toBe("copy");
+    await userEvent.keyboard("p");
+    await vi.waitFor(() => expect(input.value).toBe("a.md"));
+    expect(api).toHaveBeenCalledWith("files/copy", { from: "/work/a.md", to: "a.md" });
+    input.value = "docs/a-copy.md";
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(row("/work/docs/a-copy.md")).not.toBeNull());
+    expect(files.has("/work/a.md")).toBe(true);
+
+    tree.focus();
+    await userEvent.keyboard("d");
+    expect(confirm).toHaveBeenCalledWith("Delete docs/a-copy.md? This cannot be undone.");
+    await vi.waitFor(() => expect(row("/work/docs/a-copy.md")).toBeNull());
+    expect(onChange).toHaveBeenLastCalledWith({ action: "delete", path: "/work/docs/a-copy.md", type: "file", fallback: null });
+    expect(onError).not.toHaveBeenCalled();
+    for (const id of ["op-tree", "op-prompt", "op-menu"]) document.getElementById(id).remove();
 });

@@ -159,6 +159,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             if (await open(item.path) && !disposed && controller.getState().current.path === item.path) agent.edit(editor.view, item);
         },
     });
+    const within = (path, parent) => path === parent || path?.startsWith(`${parent}/`) || path?.startsWith(`${parent}\\`);
     const finder = createFinder({
         elements: elements({ dialog: "finder", input: "finder-input", list: "finder-list", status: "finder-status" }),
         api, window: win, onError: report,
@@ -169,6 +170,22 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         tree: $("tree"), api, onOpen: (path, options) => open(path, options), onFind: findFile,
         onLeave: () => shell.focusEditor(),
         onHide: () => { shell.setSidebar(false); editor.focus(); }, onError: report,
+        confirm, menu: $("tree-menu"),
+        prompt: { form: $("tree-prompt"), label: $("tree-prompt-label"), input: $("tree-prompt-input") },
+        onChange: async (change) => {
+            if (disposed) return;
+            const current = controller.getState().current?.path;
+            if (change.action === "create" && change.type === "file") await open(change.path);
+            else if (change.action === "move") {
+                // The server follows the rename; polling adopts the new path without reloading the text.
+                if (within(current, change.from)) await controller.poll();
+                await review.refresh();
+            } else if (change.action === "delete") {
+                await review.refresh();
+                const affected = await controller.markDeleted(change.path, change.fallback);
+                if (affected && !change.fallback) shell.error(new Error(`${change.path.split(/[\\/]/).pop()} was deleted. Its text remains in this editor until you open another file.`));
+            }
+        },
     });
     outline = createOutline({
         list: $("outline"), name: $("outline-name"), getDocument: () => editor.view?.state.doc,
@@ -273,7 +290,19 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         },
         readText: editor.readText, onState: (state) => shell.state(state),
         onReloading: (value) => editor.setReadOnly(value),
-        onPoll: async () => { await Promise.all([review.refresh(), history.refresh()]); },
+        onRelocate: (snapshot) => {
+            scrollSync?.preserve();
+            scrollSync?.document(isMarkdown(snapshot.name));
+            editor.rename(snapshot);
+            shell.document(snapshot);
+            preview.document(snapshot, { relocate: true });
+            outline.document(snapshot);
+            history.document(snapshot);
+            safe(review.refresh());
+            safe(explorer.reveal(snapshot.path));
+        },
+        onWorkspacePoll: () => review.refresh(),
+        onPoll: () => history.refresh(),
         onDocument: (snapshot, options) => {
             if (options.kind !== "switch") scrollSync?.preserve();
             editor.applyDocument(snapshot, options);
@@ -299,6 +328,8 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         },
     });
     listen($("refresh-tree"), "click", () => explorer.refresh());
+    listen($("new-file"), "click", () => explorer.createFile());
+    listen($("new-folder"), "click", () => explorer.createFolder());
     listen($("collapse-tree"), "click", () => explorer.collapseAll());
     const devReload = root.querySelector("#dev-reload-button");
     if (devReload) listen(devReload, "click", () => {
