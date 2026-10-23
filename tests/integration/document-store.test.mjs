@@ -149,6 +149,25 @@ test("updates queued before and after a rename cannot commit the same revision",
     assert.equal((await new DocumentStore(store.artifacts).open(target)).content, "First\n");
 });
 
+test("queued writes to deleted documents cannot restore their recovery records", async () => {
+    const { path, store, document, artifacts } = await fixture();
+    const revision = document.revision;
+    const removing = store.remove(path, () => rm(path));
+    const updating = store.update(document, "Discarded\n", revision);
+    const rejected = assert.rejects(updating, { code: "file_deleted" });
+    await removing;
+    await rejected;
+    await assert.rejects(access(document.draftPath), { code: "ENOENT" });
+
+    await writeFile(path, "# Original\n");
+    const replacement = await store.open(path);
+    assert.notEqual(replacement, document);
+    await assert.rejects(store.update(document, "Stale\n", revision), { code: "file_deleted" });
+    await assert.rejects(store.save(document, revision), { code: "file_deleted" });
+    await assert.rejects(store.reload(document, revision, "disk"), { code: "file_deleted" });
+    assert.equal((await new DocumentStore(artifacts).open(path)).content, "# Original\n");
+});
+
 test("reload refuses a stale disk hash", async () => {
     const { path, store, document } = await fixture();
     const state = await store.snapshot(document);

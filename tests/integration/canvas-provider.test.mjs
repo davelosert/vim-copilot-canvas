@@ -106,6 +106,28 @@ test("panels keep independent active documents over one shared store", async ({ 
     expect((await action("get_document")({ instanceId: "two" })).name).toBe("b.md");
 });
 
+test("panels share batch state and updates across file moves and deletions", async ({ onTestFinished }) => {
+    const { project, canvas } = await fixture(onTestFinished);
+    const input = { filePath: join(project, "a.md") };
+    const one = await canvas.open({ instanceId: "one", input });
+    const two = await canvas.open({ instanceId: "two", input });
+    const post = (url, path, body) => api(url, path, { method: "POST", body: JSON.stringify(body) });
+    const add = (path, text) => ({
+        path, prompt: "Fix", selections: [{ start: { line: 0, character: 0 }, end: { line: 0, character: text.length }, text }],
+    });
+    const added = await post(one.url, "/api/review/add", add("a.md", "# A"));
+    const id = added.body.items[0].id;
+    expect((await api(two.url, "/api/review")).body.items).toHaveLength(1);
+    expect((await post(one.url, "/api/files/move", { from: "a.md", to: "renamed.md" })).status).toBe(200);
+    expect((await api(two.url, "/api/review")).body.items[0].path).toBe(join(project, "renamed.md"));
+    expect((await post(two.url, "/api/review/edit", { id, prompt: "Updated" })).status).toBe(200);
+    expect((await api(one.url, "/api/review")).body.items[0]).toMatchObject({ path: join(project, "renamed.md"), prompt: "Updated" });
+    expect((await post(one.url, "/api/files/delete", { path: "renamed.md" })).status).toBe(200);
+    expect((await api(two.url, "/api/review")).body.items).toEqual([]);
+    expect((await post(two.url, "/api/review/add", add("b.md", "# B"))).status).toBe(200);
+    expect((await api(one.url, "/api/review")).body.items.map(({ path }) => path)).toEqual([join(project, "b.md")]);
+});
+
 test("session working directory is used only without explicit input", async ({ onTestFinished }) => {
     const { project, canvas, action } = await fixture(onTestFinished);
     const opened = await canvas.open({ instanceId: "cwd", input: undefined, session: { workingDirectory: project } });

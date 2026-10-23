@@ -376,6 +376,26 @@ describe("explorer renames and deletions", () => {
         f.controller.dispose();
     });
 
+    it("keeps the active buffer saveable when opening a deleted destination fails", async () => {
+        vi.useFakeTimers();
+        const api = {
+            open: vi.fn(async () => { throw Object.assign(new Error("gone"), { code: "file_deleted" }); }),
+            document: vi.fn(async () => snapshot()),
+            draft: vi.fn(async (input) => snapshot({ ...input, dirty: true })),
+            save: vi.fn(async () => snapshot({ content: "Retained edits" })),
+        };
+        const f = setup(api);
+        await expect(f.controller.open("/work/deleted.md")).rejects.toMatchObject({ code: "file_deleted" });
+        expect(f.controller.getState()).toMatchObject({ deleted: false, current: { path: "/work/a.md" } });
+        await f.controller.poll();
+        expect(api.document).toHaveBeenCalled();
+        f.edit("Retained edits");
+        await vi.advanceTimersByTimeAsync(200);
+        expect(api.draft).toHaveBeenCalledWith(expect.objectContaining({ path: "/work/a.md", content: "Retained edits" }));
+        expect(api.save).toHaveBeenCalledOnce();
+        f.controller.dispose();
+    });
+
     it("stops autosave and polling for a deleted file until another file opens", async () => {
         vi.useFakeTimers();
         const api = {

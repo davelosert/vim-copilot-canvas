@@ -127,6 +127,9 @@ export function createPreview({ element, words, readText, renderSource, loadImag
     return {
         document(snapshot, { reset = false, relocate = false } = {}) {
             invalidate();
+            if (relocate && path !== snapshot.path) {
+                for (const block of blocks) block.html = null;
+            }
             resetPosition = resetPosition || reset || (!relocate && path !== snapshot.path);
             if (resetPosition) element.scrollTop = 0;
             if ((!relocate && path !== snapshot.path) || !isMarkdown(snapshot.name)) {

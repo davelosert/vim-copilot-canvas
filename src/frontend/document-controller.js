@@ -4,7 +4,7 @@ const conflict = () => Object.assign(new Error("The file or draft changed while 
  * readText reads the live buffer; onDocument must apply text synchronously.
  */
 export function createDocumentController({ api, readText, onState = () => {}, onDocument = () => {},
-    onPoll = async () => {}, onReloading = () => {}, onRelocate = () => {} }) {
+    onPoll = async () => {}, onWorkspacePoll = async () => {}, onReloading = () => {}, onRelocate = () => {} }) {
     let current = null;
     let observedDiskHash = null;
     let localVersion = 0;
@@ -33,7 +33,10 @@ export function createDocumentController({ api, readText, onState = () => {}, on
         if (pending() || current?.dirty) saveFailed = true;
         if (reason.code === "draft_conflict") blocked = true;
         if (reason.code === "disk_conflict" && current) current = { ...current, conflict: true };
-        if (reason.code === "file_deleted") { deleted = true; cancelScheduledSave(); }
+        if (reason.code === "file_deleted" && (!reason.documentPath || reason.documentPath === current.path)) {
+            deleted = true;
+            cancelScheduledSave();
+        }
         status = deleted ? "File deleted" : blocked ? "Draft conflict" : "Not synced";
         emit();
     };
@@ -161,7 +164,12 @@ export function createDocumentController({ api, readText, onState = () => {}, on
             if (!current.conflict) await flushChanges();
         }
         // Do not clear conflict ownership until opening actually succeeds.
-        const snapshot = await api.open({ path });
+        let snapshot;
+        try { snapshot = await api.open({ path }); }
+        catch (reason) {
+            reason.documentPath = path;
+            throw reason;
+        }
         apply(snapshot, "switch");
         if (snapshot.dirty && !snapshot.conflict) scheduleSave();
         return !disposed;
@@ -204,6 +212,8 @@ export function createDocumentController({ api, readText, onState = () => {}, on
             return true;
         }),
         poll: () => enqueue(async () => {
+            await onWorkspacePoll();
+            if (disposed) return;
             if (deleted) return;
             if (!blocked && pending()) await flushDraft();
             const versionAtPollStart = localVersion;

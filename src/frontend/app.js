@@ -301,7 +301,8 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             safe(review.refresh());
             safe(explorer.reveal(snapshot.path));
         },
-        onPoll: async () => { await Promise.all([review.refresh(), history.refresh()]); },
+        onWorkspacePoll: () => review.refresh(),
+        onPoll: () => history.refresh(),
         onDocument: (snapshot, options) => {
             if (options.kind !== "switch") scrollSync?.preserve();
             editor.applyDocument(snapshot, options);

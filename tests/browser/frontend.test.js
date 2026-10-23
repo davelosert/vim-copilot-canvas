@@ -1633,6 +1633,29 @@ describe("mounted frontend with real CodeMirror", () => {
         expect($("notice").hidden).toBe(true);
     });
 
+    it("continues refreshing workspace requests after the active document is deleted", async () => {
+        const interval = vi.spyOn(window, "setInterval");
+        const { app, api } = await fixture();
+        const tick = interval.mock.calls.at(-1)[0];
+        await api("review/add", { path: "/work/a.md", prompt: "Deleted comment" });
+        tick();
+        await expect.poll(() => $("review-count").textContent).toBe("1 pending request");
+
+        const original = api.getMockImplementation();
+        api.mockImplementation((path, input) => path.startsWith("document")
+            ? Promise.reject(Object.assign(new Error("File deleted"), { code: "file_deleted" }))
+            : original(path, input));
+        await api("review/clear", {});
+        tick();
+        await expect.poll(() => app.controller.getState().deleted).toBe(true);
+        await expect.poll(() => $("review-count").textContent).toBe("0 pending requests");
+        const reads = api.mock.calls.filter(([path]) => path.startsWith("document")).length;
+        await api("review/add", { path: "/work/b.js", prompt: "Surviving comment" });
+        tick();
+        await expect.poll(() => $("review-list").textContent).toContain("Surviving comment");
+        expect(api.mock.calls.filter(([path]) => path.startsWith("document"))).toHaveLength(reads);
+    });
+
     it("disposes listeners, timers, editors and prompts and can remount without duplicate actions", async () => {
         const interval = vi.spyOn(window, "setInterval");
         const clear = vi.spyOn(window, "clearInterval");

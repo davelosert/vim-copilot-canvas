@@ -1,4 +1,4 @@
-import { basename, isAbsolute, relative, sep } from "node:path";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { EditorError } from "./errors.mjs";
 import { createFileOperations } from "./file-operations.mjs";
 import { composeReview, summarize } from "./review-store.mjs";
@@ -12,6 +12,7 @@ import { readImage } from "./images.mjs";
  */
 export function createRoutes({ store, workspace, document, reviews, recents, settings, sendMessage, markdown }) {
     const state = { activePath: document.path };
+    const activeAliases = new Set([document.path]);
     // Recents are a convenience: failing to record one never fails the open.
     const remember = (path) => recents?.add(workspace.root, path).catch(() => {});
     const initialized = workspace.contains(document.path) ? remember(document.path) : Promise.resolve();
@@ -48,23 +49,43 @@ export function createRoutes({ store, workspace, document, reviews, recents, set
     };
     const review = async () => ({ items: summarize(await reviews.list(workspace.root)) });
     const fileOperations = createFileOperations({ store, workspace, reviews });
-    const activePath = () => (state.activePath = store.successor(state.activePath));
-    const load = async (path) => {
+    const activePath = () => {
+        activeAliases.add(document.path);
+        return (state.activePath = document.path);
+    };
+    const activate = (target) => {
+        document = target;
+        activeAliases.clear();
+        activePath();
+    };
+    const load = async (path, { explicit = false } = {}) => {
         const requested = path ?? activePath();
+        activePath();
+        // Background requests belong to this panel's buffer, even if a former path
+        // now names a different file. Explicit opens deliberately select that file.
+        if (!explicit && activeAliases.has(resolve(workspace.root, requested))) {
+            store.checkDocument(document);
+            await workspace.resolve(document.path);
+            return document;
+        }
         try {
             return await store.open(await workspace.resolve(requested));
         } catch (error) {
             if (error.code !== "not_found" || !isAbsolute(requested)) throw error;
             const moved = store.successor(requested);
-            if (moved !== requested) return load(moved);
+            if (moved !== requested) return load(moved, { explicit });
             if (store.isDeleted(requested)) throw new EditorError("file_deleted", `${basename(requested)} was deleted. Its text remains in this editor until you open another file.`, 410);
             throw error;
         }
     };
-    const snapshot = async (doc) => ({ ...(await store.snapshot(doc)), activePath: activePath() });
+    const track = (target, snapshot) => {
+        if (target === document) activeAliases.add(snapshot.path);
+        return { ...snapshot, activePath: activePath() };
+    };
+    const snapshot = async (doc) => track(doc, await store.snapshot(doc));
     const openFile = async (path) => {
-        const target = await load(path);
-        state.activePath = target.path;
+        const target = await load(path, { explicit: true });
+        activate(target);
         await remember(target.path);
         return target;
     };
@@ -75,17 +96,17 @@ export function createRoutes({ store, workspace, document, reviews, recents, set
         }
         return handler(input);
     };
-    const documentInput = (handler) => objectInput(async (input) => {
+    const documentInput = (handler, options) => objectInput(async (input) => {
         if (typeof input.path !== "string") {
             throw new EditorError("invalid_input", "A document path is required.", 400);
         }
-        return handler(await load(input.path), input);
+        return handler(await load(input.path, options), input);
     });
     const revisionInput = (operation) => documentInput(async (target, input) => {
         if (typeof input.revision !== "string") {
             throw new EditorError("invalid_input", "A document revision is required.", 400);
         }
-        return { ...(await operation(target, input)), activePath: activePath() };
+        return track(target, await operation(target, input));
     });
     const selectionInput = (handler) => documentInput((target, input) => {
         const prompt = validPrompt(input.prompt);
@@ -124,10 +145,10 @@ export function createRoutes({ store, workspace, document, reviews, recents, set
         ["/api/save", revisionInput((target, input) => store.save(target, input.revision))],
         ["/api/reload", revisionInput((target, input) => store.reload(target, input.revision, input.diskHash))],
         ["/api/open", documentInput(async (target) => {
-            state.activePath = target.path;
+            activate(target);
             await remember(target.path);
             return snapshot(target);
-        })],
+        }, { explicit: true })],
         ["/api/agent", selectionInput(async (target, input, prompt, attachments) =>
             ({ messageId: await sendRecorded({ type: "request", prompt, deliveryId: input.deliveryId,
                 items: [{ path: target.path, prompt, attachments, context: requestContext(input, attachments) }] }) }))],

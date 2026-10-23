@@ -1,4 +1,4 @@
-import { test, expect } from "vitest";
+import { test, expect, onTestFinished } from "vitest";
 import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -295,6 +295,38 @@ test("deleting files reports them as deleted, offers a fallback and drops their 
     await writeFile(join(project, "dir", "c.md"), "C");
     await expect(routes.post.get("/api/files/delete")({ path: "dir" })).resolves.toMatchObject({ type: "directory" });
     await expect(stat(join(project, "dir"))).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test.each(["create", "move"])("panels follow their renamed buffer when its old path is reused by %s", async (operation) => {
+    const { project, store, workspace, document, reviews, settings, routes } = await fixture(onTestFinished);
+    const other = createRoutes({ store, workspace, document, reviews, settings });
+    const original = await other.get.get("/api/document")(new URLSearchParams());
+    const old = join(project, "a.md");
+    const renamed = join(project, "renamed.md");
+    await routes.post.get("/api/files/move")({ from: old, to: renamed });
+    if (operation === "create") {
+        await routes.post.get("/api/files/create")({ path: old, type: "file" });
+        await writeFile(old, "Replacement\n");
+    } else {
+        await routes.post.get("/api/files/move")({ from: "b.md", to: old });
+    }
+    await routes.post.get("/api/open")({ path: old });
+    const snapshot = await other.get.get("/api/document")(new URLSearchParams({ path: old }));
+    expect(snapshot).toMatchObject({ path: renamed, activePath: renamed, content: original.content, revision: original.revision });
+    const updated = await other.post.get("/api/draft")({ path: old, revision: original.revision, content: "Still my buffer\n" });
+    expect(updated).toMatchObject({ path: renamed, content: "Still my buffer\n" });
+    expect((await other.post.get("/api/open")({ path: old })).path).toBe(old);
+    expect((await other.get.get("/api/document")(new URLSearchParams())).content).toBe(operation === "create" ? "Replacement\n" : "B\n");
+});
+
+test("a deleted panel buffer stays deleted when another panel opens a replacement at its path", async ({ onTestFinished }) => {
+    const { project, store, workspace, document, reviews, settings, routes } = await fixture(onTestFinished);
+    const other = createRoutes({ store, workspace, document, reviews, settings });
+    await routes.post.get("/api/files/delete")({ path: "a.md" });
+    await writeFile(join(project, "a.md"), "Replacement\n");
+    await routes.post.get("/api/open")({ path: "a.md" });
+    await expect(other.get.get("/api/document")(new URLSearchParams({ path: document.path }))).rejects.toMatchObject({ code: "file_deleted" });
+    expect((await other.post.get("/api/open")({ path: "a.md" })).content).toBe("Replacement\n");
 });
 
 test("file search lists workspace files with persisted recents, newest first", async ({ onTestFinished }) => {

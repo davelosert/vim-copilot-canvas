@@ -72,9 +72,18 @@ export class DocumentStore {
     locked(document, operation) {
         // Opening and path changes share the same queue as writes, including requests
         // already waiting under a document's former name.
-        const result = this.operations.catch(() => {}).then(operation);
+        const result = this.operations.catch(() => {}).then(() => {
+            if (document) this.checkDocument(document);
+            return operation();
+        });
         this.operations = result;
         return result;
+    }
+
+    checkDocument(document) {
+        if (this.documents.get(document.path) !== document) {
+            throw new EditorError("file_deleted", `${document.name} was deleted. Its text remains in this editor until you open another file.`, 410);
+        }
     }
 
     async readDraft(draftPath) {

@@ -3,6 +3,7 @@ import { DocumentStore } from "./document-store.mjs";
 import { startServer as defaultStartServer } from "./server.mjs";
 import { Workspace, resolveInitialTarget } from "./workspace.mjs";
 import { HistoryStore } from "./history-store.mjs";
+import { ReviewStore } from "./review-store.mjs";
 
 export const CANVAS_ID = "vim-markdown";
 
@@ -29,6 +30,7 @@ export function installationPaths(root, artifactsDir = join(root, "artifacts")) 
  */
 export function createPanels({ store, root, sendMessage, devReload, startServer = defaultStartServer }) {
     const servers = new Map();
+    const reviews = new ReviewStore(join(store.artifacts, "reviews"));
     return {
         get(instanceId) { return servers.get(instanceId); },
         get size() { return servers.size; },
@@ -53,7 +55,7 @@ export function createPanels({ store, root, sendMessage, devReload, startServer 
                     document = await store.open();
                     workspace = new Workspace(dirname(document.path), { ignore: ["drafts"] });
                 }
-                value = Object.assign(await startServer({ store, workspace, document, root, sendMessage, devReload }), { key });
+                value = Object.assign(await startServer({ store, workspace, document, reviews, root, sendMessage, devReload }), { key });
                 servers.set(instanceId, value);
             }
             return { title: `Vim · ${basename(value.workspace.root)}`, url: value.url };
