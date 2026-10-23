@@ -1,6 +1,6 @@
 // Vim-style, mouse-friendly file tree. Directories load lazily from /api/tree.
 // File operations follow nvim-tree: a create, r rename/move, d delete, x/c/p cut/copy/paste.
-export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError,
+export function createExplorer({ tree, api, onOpen, onLeave, onHide, onFind = () => {}, onError,
     onChange = async () => {}, confirm = () => false, prompt, menu }) {
     const nodes = new Map();
     let nextId = 0;
@@ -217,9 +217,9 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError,
 
     async function expandTo(path) {
         const root = nodes.get(rootPath);
-        if (!root || !path?.startsWith(`${rootPath}/`)) return null;
+        if (!root || !path || !inside(path, rootPath) || path === rootPath) return null;
         let directory = root;
-        const parts = path.slice(rootPath.length + 1).split("/");
+        const parts = path.slice(rootPath.length + 1).split(/[\\/]/);
         for (const [index, part] of parts.entries()) {
             if (!directory.children) await load(directory);
             if (disposed) return null;
@@ -241,10 +241,10 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError,
         render();
     }
 
-    const relativePath = (path) => path === rootPath ? "" : path.slice(rootPath.length + 1);
+    const relativePath = (path) => path === rootPath ? "" : path.slice(rootPath.length + 1).replaceAll("\\", "/");
     const joinPath = (directory, name) => directory ? `${directory}/${name}` : name;
-    const baseName = (path) => path.split("/").pop();
-    const inside = (path, parent) => path === parent || path.startsWith(`${parent}/`);
+    const baseName = (path) => path.split(/[\\/]/).pop();
+    const inside = (path, parent) => path === parent || path.startsWith(`${parent}/`) || path.startsWith(`${parent}\\`);
     const directoryOf = (item) => !item || item.path === rootPath ? nodes.get(rootPath)
         : item.type === "directory" ? item : item.parent ?? nodes.get(rootPath);
     const editable = (item) => item && item.path !== rootPath;
@@ -334,9 +334,19 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError,
     async function rename(item = nodes.get(selected)) {
         if (!editable(item)) return;
         const from = relativePath(item.path);
-        const value = await ask("Rename / move to", from, { selectName: true });
-        if (!value || value.replace(/\/+$/, "") === from) return;
-        await moved(item.path, await api("files/move", { from: item.path, to: value.replace(/\/+$/, "") }));
+        let value = await ask("Rename / move to", from, { selectName: true });
+        for (;;) {
+            if (!value || value.replace(/\/+$/, "") === from) return;
+            let result;
+            try {
+                result = await api("files/move", { from: item.path, to: value.replace(/\/+$/, "") });
+            } catch (error) {
+                if (error.code !== "already_exists") throw error;
+                value = await ask(`${baseName(value)} already exists. Move as`, value, { selectName: true });
+                continue;
+            }
+            return moved(item.path, result);
+        }
     }
 
     async function remove(item = nodes.get(selected)) {
@@ -411,6 +421,15 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError,
     tree.addEventListener("keydown", (event) => {
         if (event.metaKey || event.altKey) return;
         const key = event.key;
+        if (menu && (key === "ContextMenu" || (key === "F10" && event.shiftKey))) {
+            event.preventDefault();
+            event.stopPropagation();
+            const item = nodes.get(selected) ?? nodes.get(rootPath);
+            if (!item) return;
+            const rect = (tree.querySelector(`[id="${item.id}"]`) ?? tree).getBoundingClientRect();
+            openMenu(item, rect.left + 16, rect.bottom);
+            return;
+        }
         if (pendingWindow) {
             pendingWindow = false;
             event.preventDefault();
@@ -448,6 +467,7 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError,
             x: () => perform("cut"),
             c: () => perform("copy"),
             p: () => perform("paste"),
+            f: onFind,
             "-": () => select(nodes.get(selected)?.parent?.path !== rootPath ? nodes.get(selected)?.parent?.path : selected),
             Escape: onLeave,
             q: onHide,

@@ -44,7 +44,7 @@
       <button type="button" role="menuitem" data-action="paste">Paste<kbd>p</kbd></button>
       <button type="button" role="menuitem" data-action="delete" class="danger">Delete…<kbd>d</kbd></button>
     </div>
-    <div class="explorer-hint"><kbd>j</kbd><kbd>k</kbd> move · <kbd>l</kbd> open · <kbd>h</kbd> close · <kbd>a</kbd><kbd>r</kbd><kbd>d</kbd> new/rename/delete · <kbd>⌃w l</kbd> editor</div>
+    <div class="explorer-hint"><kbd>j</kbd><kbd>k</kbd> move · <kbd>l</kbd> open · <kbd>h</kbd> close · <kbd>f</kbd> find · <kbd>a</kbd><kbd>r</kbd><kbd>d</kbd> new/rename/delete · <kbd>⌃w l</kbd> editor</div>
     </div>
     <div id="outline-panel" class="explorer-panel" role="tabpanel" aria-labelledby="outline-tab" hidden>
       <div class="pane-label explorer-label"><span id="outline-name" class="explorer-root">OUTLINE</span></div>
@@ -88,6 +88,11 @@
         <select id="editor-theme" aria-describedby="editor-theme-description"></select>
         <p id="editor-theme-description">Choose a CodeMirror-compatible syntax and editor theme. GitHub (system) follows the host's colour mode.</p>
       </div>
+      <div class="setting-field">
+        <label for="editor-font">Editor font</label>
+        <select id="editor-font" aria-describedby="editor-font-description"></select>
+        <p id="editor-font-description">Choose the monospace font used in the editor and other code-like text. Monaspace fonts are included with the canvas.</p>
+      </div>
       <div class="setting-field setting-checkbox">
         <input id="relative-line-numbers" type="checkbox" aria-describedby="relative-line-numbers-description">
         <label for="relative-line-numbers">Relative line numbers</label>
@@ -108,6 +113,11 @@
       <p id="settings-status" role="status" aria-live="polite"></p>
       <div class="settings-actions"><button id="discard-settings" type="button" disabled>Discard</button><button id="save-settings" type="button" disabled>Save</button></div>
     </div>
+  </dialog>
+  <dialog id="finder" class="finder" aria-label="Go to file">
+    <input id="finder-input" type="text" role="combobox" aria-label="Search files by name" aria-autocomplete="list" aria-expanded="true" aria-controls="finder-list" aria-haspopup="listbox" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search files by name">
+    <ul id="finder-list" class="finder-list" role="listbox" aria-label="Matching files"></ul>
+    <div class="finder-footer"><span id="finder-status" role="status" aria-live="polite"></span><span class="finder-hint"><kbd>↑↓</kbd> / <kbd>Ctrl+n p</kbd> move · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close</span></div>
   </dialog>
   <dialog id="help">
     <div class="dialog-heading"><div><span class="eyebrow">KEYBOARD FIRST</span><h1>Your familiar motions.</h1></div><button id="close-help" aria-label="Close shortcuts">×</button></div>
@@ -151,6 +161,13 @@
         <kbd>a</kbd><span>New file (end with / for a folder)</span><kbd>r</kbd><span>Rename or move (edit the path)</span>
         <kbd>d</kbd><span>Delete file or folder</span><kbd>x / c / p</kbd><span>Cut / copy / paste into folder</span>
         <kbd>Right-click</kbd><span>File actions menu</span><kbd>Drag</kbd><span>Move onto a folder</span>
+      </div>
+    </section>
+    <section class="shortcut-section">
+      <span class="eyebrow">QUICK OPEN</span>
+      <div class="shortcut-grid">
+        <kbd>Cmd/Ctrl+p / :Files</kbd><span>Fuzzy-search every workspace file</span><kbd>Space f / f (explorer)</kbd><span>Open the finder from Vim / the explorer</span>
+        <kbd>Up / Down / Ctrl+n / Ctrl+p</kbd><span>Next / previous match (also Ctrl+j / Ctrl+k)</span><kbd>Enter / Esc</kbd><span>Open the file / close the finder</span>
       </div>
     </section>
     <section class="shortcut-section">

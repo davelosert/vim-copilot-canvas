@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, readFile, stat, writeFile, access } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, stat, writeFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "vitest";
 import { DEFAULT_WELCOME_PATH } from "../../src/backend/document-store.mjs";
@@ -65,6 +65,88 @@ test("simultaneous opens share the same canonical document", async () => {
     const store = new DocumentStore(artifacts);
     const [a, b] = await Promise.all([store.open(path), store.open(path)]);
     assert.equal(a, b);
+});
+
+test.each(["file", "folder"])("unopened persisted drafts follow a %s move after restart", async (kind) => {
+    const { root, artifacts, store } = await fixture();
+    const folder = join(root, "notes");
+    await mkdir(folder);
+    const path = join(folder, "draft.md");
+    await writeFile(path, "Base\n");
+    const document = await store.open(path);
+    const draft = await store.update(document, "Unsaved\n", document.revision);
+    const previousDraft = document.draftPath;
+    const restarted = new DocumentStore(artifacts);
+    const from = kind === "file" ? path : folder;
+    const to = join(root, kind === "file" ? "renamed.md" : "archive");
+    await restarted.relocate(from, to, () => rename(from, to));
+    const target = kind === "file" ? to : join(to, "draft.md");
+    const recoveredStore = new DocumentStore(artifacts);
+    const recovered = await recoveredStore.open(target);
+    assert.equal(recovered.content, "Unsaved\n");
+    assert.equal(recovered.revision, draft.revision);
+    assert.equal(recovered.baseContent, "Base\n");
+    await assert.rejects(access(previousDraft), { code: "ENOENT" });
+});
+
+test.each(["file", "folder"])("deleting an unopened %s discards persisted drafts before recreation", async (kind) => {
+    const { root, artifacts, store } = await fixture();
+    const folder = join(root, "notes");
+    await mkdir(folder);
+    const path = join(folder, "draft.md");
+    await writeFile(path, "Base\n");
+    const document = await store.open(path);
+    await store.update(document, "Obsolete\n", document.revision);
+    const restarted = new DocumentStore(artifacts);
+    const target = kind === "file" ? path : folder;
+    await restarted.remove(target, () => rm(target, { recursive: true }));
+    await mkdir(folder, { recursive: true });
+    await writeFile(path, "Base\n");
+    const recovered = await new DocumentStore(artifacts).open(path);
+    assert.equal(recovered.content, "Base\n");
+    await assert.rejects(access(document.draftPath), { code: "ENOENT" });
+});
+
+test("updates queued before and after a rename cannot commit the same revision", async () => {
+    const { path, root, store, document } = await fixture();
+    const target = join(root, "renamed.md");
+    const revision = document.revision;
+    let releaseRename;
+    const renameGate = new Promise((resolve) => { releaseRename = resolve; });
+    let started;
+    const startedGate = new Promise((resolve) => { started = resolve; });
+    let published;
+    const publishedGate = new Promise((resolve) => { published = resolve; });
+    const persist = store.persist.bind(store);
+    let releasePersist;
+    const persistGate = new Promise((resolve) => { releasePersist = resolve; });
+    store.persist = async (value) => {
+        if (value === document && value.path === target) {
+            published();
+            await persistGate;
+        }
+        return persist(value);
+    };
+    const moving = store.relocate(path, target, async () => {
+        started();
+        await renameGate;
+        await rename(path, target);
+    });
+    await startedGate;
+    const before = store.update(document, "First\n", revision);
+    const beforeResult = before.then(() => "saved", (error) => error.code);
+    releaseRename();
+    await publishedGate;
+    const opening = store.open(target);
+    const after = store.update(document, "Second\n", revision);
+    const afterResult = after.then(() => "saved", (error) => error.code);
+    releasePersist();
+    await moving;
+    assert.equal(await opening, document);
+    assert.equal(await beforeResult, "saved");
+    assert.equal(await afterResult, "draft_conflict");
+    assert.equal((await store.snapshot(document)).content, "First\n");
+    assert.equal((await new DocumentStore(store.artifacts).open(target)).content, "First\n");
 });
 
 test("reload refuses a stale disk hash", async () => {

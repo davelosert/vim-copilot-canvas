@@ -3,6 +3,7 @@ import { createDocumentController } from "./document-controller.js";
 import { createEditor } from "./editor.js";
 import { createAgent } from "./agent.js";
 import { createExplorer } from "./explorer.js";
+import { createFinder } from "./finder.js";
 import { createOutline } from "./outline.js";
 import { createCommands } from "./commands.js";
 import { createPreview } from "./preview.js";
@@ -12,6 +13,7 @@ import { createShell } from "./shell.js";
 import { createScrollSync } from "./scroll-sync.js";
 import { isMarkdown } from "./markdown.js";
 import { createHistory } from "./history.js";
+import { defaultEditorFont, editorFonts } from "../shared/fonts.js";
 
 /** Compose one panel. The synchronous handle permits disposal even during startup. */
 export function mountApp({ root = document, window: win = root.ownerDocument?.defaultView ?? root.defaultView,
@@ -158,8 +160,14 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         },
     });
     const within = (path, parent) => path === parent || path?.startsWith(`${parent}/`) || path?.startsWith(`${parent}\\`);
+    const finder = createFinder({
+        elements: elements({ dialog: "finder", input: "finder-input", list: "finder-list", status: "finder-status" }),
+        api, window: win, onError: report,
+        onOpen: (path) => safe(open(path).then((opened) => { if (!disposed && !opened) editor.focus(); })),
+    });
+    const findFile = () => finder.open();
     const explorer = createExplorer({
-        tree: $("tree"), api, onOpen: (path, options) => open(path, options),
+        tree: $("tree"), api, onOpen: (path, options) => open(path, options), onFind: findFile,
         onLeave: () => shell.focusEditor(),
         onHide: () => { shell.setSidebar(false); editor.focus(); }, onError: report,
         confirm, menu: $("tree-menu"),
@@ -174,10 +182,8 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
                 await review.refresh();
             } else if (change.action === "delete") {
                 await review.refresh();
-                if (!within(current, change.path)) return;
-                controller.markDeleted();
-                if (change.fallback) await open(change.fallback, { focusEditor: false });
-                else shell.error(new Error(`${current.split(/[\\/]/).pop()} was deleted. Its text remains in this editor until you open another file.`));
+                const affected = await controller.markDeleted(change.path, change.fallback);
+                if (affected && !change.fallback) shell.error(new Error(`${change.path.split(/[\\/]/).pop()} was deleted. Its text remains in this editor until you open another file.`));
             }
         },
     });
@@ -262,10 +268,13 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     }
     const preferences = createSettings({
         elements: elements({ dialog: "settings", button: "settings-button", close: "close-settings", relative: "relative-line-numbers",
-            shortcuts: "show-keyboard-shortcut-indicators", theme: "editor-theme", status: "settings-status",
+            shortcuts: "show-keyboard-shortcut-indicators", theme: "editor-theme", font: "editor-font", status: "settings-status",
             save: "save-settings", discard: "discard-settings", agentVim: "agent-vim-mode" }),
         api, onSettings: (value, previous) => {
             editor.applySettings(value);
+            if (!previous || value.font !== previous.font) {
+                doc.documentElement.style.setProperty("--font-mono", editorFonts[value.font ?? defaultEditorFont].family);
+            }
             if (!previous || value.agentVimMode !== previous.agentVimMode) agent.applySettings(value);
             if (!previous || value.showKeyboardShortcutIndicators !== previous.showKeyboardShortcutIndicators) {
                 doc.documentElement.dataset.showKeyboardShortcutIndicators = String(value.showKeyboardShortcutIndicators ?? true);
@@ -282,9 +291,11 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
         readText: editor.readText, onState: (state) => shell.state(state),
         onReloading: (value) => editor.setReadOnly(value),
         onRelocate: (snapshot) => {
+            scrollSync?.preserve();
+            scrollSync?.document(isMarkdown(snapshot.name));
             editor.rename(snapshot);
             shell.document(snapshot);
-            preview.document(snapshot);
+            preview.document(snapshot, { relocate: true });
             outline.document(snapshot);
             history.document(snapshot);
             safe(review.refresh());
@@ -310,7 +321,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     commands = createCommands({
         document: doc, editor, agent,
         actions: {
-            save, open: (path) => safe(open(path)), onError: report, focusExplorer,
+            save, open: (path) => safe(open(path)), onError: report, focusExplorer, findFile,
             sidebarOpen: shell.sidebarOpen, hideExplorer: () => shell.setSidebar(false),
             submitReview: () => safe(review.submit()), discardReview: () => safe(review.discard()),
         },
@@ -379,7 +390,7 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
             win.clearInterval(interval);
             handlers.abort(); observer.disconnect();
             darkQuery.removeEventListener("change", updateTheme);
-            controller.dispose(); commands.dispose(); explorer.dispose(); outline.dispose(); history.dispose(); preferences.dispose();
+            controller.dispose(); commands.dispose(); finder.dispose(); explorer.dispose(); outline.dispose(); history.dispose(); preferences.dispose();
             review.dispose(); preview.dispose(); shell.dispose();
             scrollSync?.dispose();
             editor.dispose(); agent.dispose();

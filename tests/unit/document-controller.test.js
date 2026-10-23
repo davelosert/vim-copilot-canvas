@@ -330,6 +330,52 @@ describe("explorer renames and deletions", () => {
         f.controller.dispose();
     });
 
+    it("adopts a rename arriving on the second poll read without switching documents", async () => {
+        const moved = snapshot({ path: "/work/renamed.md", name: "renamed.md", activePath: "/work/renamed.md" });
+        const api = { document: vi.fn().mockResolvedValueOnce(snapshot()).mockResolvedValue(moved), open: vi.fn() };
+        const f = setup(api);
+        await f.controller.poll();
+        expect(f.controller.getState().current.path).toBe(moved.path);
+        expect(f.onRelocate).toHaveBeenCalledOnce();
+        expect(f.onDocument).not.toHaveBeenCalled();
+        expect(api.open).not.toHaveBeenCalled();
+        f.controller.dispose();
+    });
+
+    it("does not mark a newly opened document deleted or skip saving its edits", async () => {
+        const opening = deferred();
+        const api = {
+            open: vi.fn(() => opening.promise),
+            draft: vi.fn(async (input) => snapshot({ ...input, dirty: true })),
+            save: vi.fn(async () => snapshot({ path: "/work/b.md", name: "b.md", content: "B edits" })),
+        };
+        const f = setup(api);
+        const switching = f.controller.open("/work/b.md");
+        const deletion = f.controller.markDeleted("/work/a.md", "/work/c.md");
+        opening.resolve(snapshot({ path: "/work/b.md", name: "b.md", content: "B" }));
+        await switching;
+        f.edit("B edits");
+        expect(await deletion).toBe(false);
+        expect(f.controller.getState()).toMatchObject({ deleted: false, current: { path: "/work/b.md" } });
+        await f.controller.save();
+        expect(api.open).toHaveBeenCalledTimes(1);
+        expect(api.draft).toHaveBeenCalledWith(expect.objectContaining({ path: "/work/b.md", content: "B edits" }));
+        expect(api.save).toHaveBeenCalledOnce();
+        f.controller.dispose();
+    });
+
+    it("opens the deletion fallback atomically before the next queued document switch", async () => {
+        const api = { open: vi.fn(async ({ path }) => snapshot({ path, name: path.split("/").pop() })) };
+        const f = setup(api);
+        const deletion = f.controller.markDeleted("/work", "/other/fallback.md");
+        const switching = f.controller.open("/other/new.md");
+        expect(await deletion).toBe(true);
+        await switching;
+        expect(api.open.mock.calls.map(([input]) => input.path)).toEqual(["/other/fallback.md", "/other/new.md"]);
+        expect(f.controller.getState().current.path).toBe("/other/new.md");
+        f.controller.dispose();
+    });
+
     it("stops autosave and polling for a deleted file until another file opens", async () => {
         vi.useFakeTimers();
         const api = {

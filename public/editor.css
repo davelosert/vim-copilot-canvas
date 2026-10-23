@@ -1,5 +1,6 @@
 :root {
   color-scheme: light;
+  --font-mono: "Monaspace Neon", "SFMono-Regular", Consolas, monospace;
   --editor-accent: #0550ae;
   --editor-accent-contrast: #fff;
   --editor-surface: #f6f8fa;
@@ -17,6 +18,41 @@
   --tree-folder-color: #0550ae;
   --tree-markdown-color: #8250df;
   --color-focus-outline: var(--editor-accent);
+}
+@font-face {
+  font-family: "Monaspace Neon";
+  src: url("/fonts/monaspace-neon-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Monaspace Argon";
+  src: url("/fonts/monaspace-argon-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Monaspace Krypton";
+  src: url("/fonts/monaspace-krypton-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Monaspace Radon";
+  src: url("/fonts/monaspace-radon-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Monaspace Xenon";
+  src: url("/fonts/monaspace-xenon-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
 }
 :root[data-canvas-theme="dark"] {
   color-scheme: dark;
@@ -121,7 +157,7 @@ button.mini svg { display: block; }
 #editor { flex: 1; min-height: 0; overflow: hidden; }
 .cm-editor { height: 100%; font-size: 13px; }
 .cm-editor.cm-focused { outline: none; }
-.cm-scroller { overflow: auto; font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); line-height: 1.75; }
+#editor > .cm-editor > .cm-scroller, #history-review-diff .cm-scroller { overflow: auto; font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); line-height: 1.75; }
 .cm-content { padding: 20px 0 80px; }
 .cm-line { padding-left: 14px; padding-right: 20px; }
 .cm-gutters { padding-left: 6px; }
@@ -229,6 +265,18 @@ dialog::backdrop { background: #0005; }
 .eyebrow { color: var(--editor-accent); font: 10px var(--font-mono, monospace); letter-spacing: 1.5px; }
 dialog h1 { font-size: 24px; margin: 6px 0; letter-spacing: -.6px; }
 dialog p, .help-note { font-size: 12px; color: var(--editor-muted); }
+#finder { padding: 0; width: min(640px, calc(100vw - 32px)); margin-top: min(12vh, 96px); overflow: hidden; display: none; flex-direction: column; max-height: min(520px, calc(100dvh - 48px)); background: var(--editor-canvas); }
+#finder[open] { display: flex; }
+#finder-input { width: 100%; border: 0; border-bottom: 1px solid var(--editor-border); padding: 12px 16px; font: 14px var(--font-mono, monospace); color: var(--editor-text); background: transparent; outline: none; }
+.finder-list { list-style: none; margin: 0; padding: 4px 0; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+.finder-option { display: flex; align-items: baseline; gap: 8px; padding: 4px 16px; cursor: pointer; white-space: nowrap; overflow: hidden; font-size: 13px; }
+.finder-option[aria-selected="true"] { background: var(--editor-selection); }
+.finder-name { flex: 0 0 auto; }
+.finder-dir { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--editor-muted); font-size: 12px; }
+.finder-recent { flex: 0 0 auto; color: var(--editor-muted); font-size: 11px; }
+.finder-option mark { background: transparent; color: var(--editor-accent); font-weight: 700; }
+.finder-footer { display: flex; justify-content: space-between; gap: 12px; padding: 6px 16px; border-top: 1px solid var(--editor-border); font-size: 11px; color: var(--editor-muted); }
+.finder-hint kbd { border: 1px solid var(--editor-border); border-radius: 3px; padding: 0 3px; font-size: 10px; }
 #settings { padding: 0; width: min(480px, calc(100vw - 32px)); border-color: var(--borderColor-default, var(--editor-border)); border-radius: var(--borderRadius-large, 12px); background: var(--bgColor-default, var(--editor-canvas)); color: var(--fgColor-default, var(--editor-text)); box-shadow: var(--shadow-floating-large, 0 8px 24px #0003); }
 .settings-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 24px; border-bottom: 1px solid var(--borderColor-muted, var(--editor-border)); }
 #settings-title { margin: 0; font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: normal; }
@@ -259,6 +307,7 @@ dialog p, .help-note { font-size: 12px; color: var(--editor-muted); }
 :root[data-show-keyboard-shortcut-indicators="false"] .agent-actions kbd,
 :root[data-show-keyboard-shortcut-indicators="false"] .review-actions kbd,
 :root[data-show-keyboard-shortcut-indicators="false"] .agent-hint,
+:root[data-show-keyboard-shortcut-indicators="false"] .finder-hint,
 :root[data-show-keyboard-shortcut-indicators="false"] .shortcut-section { display: none !important; }
 .help-note { border-top: 1px solid var(--editor-border); padding-top: 16px; }
 @media (max-width: 700px) {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { EditorError } from "./errors.mjs";
 import { SettingsStore } from "./settings-store.mjs";
 import { ReviewStore } from "./review-store.mjs";
+import { RecentStore } from "./recent-store.mjs";
 import { createRoutes } from "./routes.mjs";
 import { createMarkdownService } from "./markdown-service.mjs";
 
@@ -19,6 +20,11 @@ const ASSETS = new Map([
     ["/editor.js", ["assets/editor.js", "text/javascript; charset=utf-8"]],
     ["/editor.css", ["public/editor.css", "text/css; charset=utf-8"]],
     ["/primer.css", ["assets/editor.css", "text/css; charset=utf-8"]],
+    ["/fonts/monaspace-neon-variable.woff2", ["public/fonts/monaspace-neon-variable.woff2", "font/woff2"]],
+    ["/fonts/monaspace-argon-variable.woff2", ["public/fonts/monaspace-argon-variable.woff2", "font/woff2"]],
+    ["/fonts/monaspace-krypton-variable.woff2", ["public/fonts/monaspace-krypton-variable.woff2", "font/woff2"]],
+    ["/fonts/monaspace-radon-variable.woff2", ["public/fonts/monaspace-radon-variable.woff2", "font/woff2"]],
+    ["/fonts/monaspace-xenon-variable.woff2", ["public/fonts/monaspace-xenon-variable.woff2", "font/woff2"]],
 ]);
 
 function assetFor(pathname) {
@@ -128,9 +134,11 @@ function markdownService(root) {
  * @param {string} options.root Installation root containing public/ and assets/.
  */
 export async function startServer({ store, workspace, document, root, sendMessage, devReload,
-    reviews = new ReviewStore(join(store.artifacts, "reviews")), settings = new SettingsStore() }) {
-    const routes = createRoutes({ store, workspace, document, reviews, settings, sendMessage, markdown: markdownService(root) });
+    reviews = new ReviewStore(join(store.artifacts, "reviews")), recents = new RecentStore(join(store.artifacts, "recent")),
+    settings = new SettingsStore() }) {
+    const routes = createRoutes({ store, workspace, document, reviews, recents, settings, sendMessage, markdown: markdownService(root) });
     if (devReload) routes.post.set("/api/dev/reload", devReload);
+    await routes.initialized;
     const transport = await listen({ root, routes, devReload });
     return {
         state: routes.state, workspace,

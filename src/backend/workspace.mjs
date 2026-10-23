@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
@@ -5,6 +6,18 @@ import { EditorError } from "./errors.mjs";
 import { diskText } from "./files.mjs";
 
 const MAX_ENTRIES = 2000;
+export const MAX_FILES = 50000;
+const FILES_TTL = 5000;
+// File search excludes these in both Git listings and the fallback walker.
+const skipForFiles = new Set([".git", "node_modules"]);
+
+function git(cwd, args) {
+    return new Promise((resolve, reject) => {
+        execFile("git", ["-C", cwd, ...args], { maxBuffer: 256 * 1024 * 1024, windowsHide: true, encoding: "utf8" },
+            (error, stdout) => error ? reject(error) : resolve(stdout));
+    });
+}
+const nulSplit = (output) => output.split("\0").filter(Boolean);
 // The explorer lists everything, but the initial document is never picked from these.
 const skipForInitial = (name) => name.startsWith(".") || name === "node_modules";
 
@@ -46,6 +59,7 @@ export class Workspace {
     constructor(root, { ignore = [] } = {}) {
         this.root = root;
         this.ignore = new Set(ignore);
+        this.filesCache = null;
     }
 
     static async create({ rootPath, filePath, ignore }) {
@@ -172,5 +186,77 @@ export class Workspace {
             queue.splice(0, queue.length, ...next.slice(0, 200));
         }
         throw new EditorError("no_documents", "No supported UTF-8 text files were found under rootPath.", 404);
+    }
+
+    /**
+     * Every file below the root as root-relative, "/"-separated paths. Uses git (respecting
+     * .gitignore) when the root is inside a repository and falls back to a bounded walker.
+     */
+    async files() {
+        const now = Date.now();
+        if (this.filesCache && now - this.filesCache.time < FILES_TTL) return this.filesCache.value;
+        const pending = this.filesCache?.pending ?? (async () => {
+            let files = await this.gitFiles().catch(() => null);
+            if (files === null) files = await this.walkFiles();
+            files = files.filter((path) => {
+                const parts = path.split("/");
+                return !this.ignore.has(parts[0]) && !parts.some((part) => skipForFiles.has(part));
+            });
+            const truncated = files.length > MAX_FILES;
+            if (truncated) files = files.slice(0, MAX_FILES);
+            files.sort((a, b) => a.localeCompare(b));
+            return { root: this.root, separator: sep, files, truncated };
+        })();
+        this.filesCache = { ...this.filesCache, pending };
+        try {
+            const value = await pending;
+            this.filesCache = { time: Date.now(), value };
+            return value;
+        } catch (error) {
+            this.filesCache = null;
+            throw error;
+        }
+    }
+
+    invalidateFiles() { this.filesCache = null; }
+
+    async gitFiles() {
+        const [cached, untracked, deleted] = await Promise.all([
+            git(this.root, ["ls-files", "-z", "--cached", "--stage"]),
+            git(this.root, ["ls-files", "-z", "--others", "--exclude-standard"]),
+            git(this.root, ["ls-files", "-z", "--deleted"]),
+        ]);
+        const removed = new Set(nulSplit(deleted));
+        const tracked = nulSplit(cached)
+            .filter((entry) => !entry.startsWith("160000 "))
+            .map((entry) => entry.slice(entry.indexOf("\t") + 1));
+        return [...new Set([...tracked, ...nulSplit(untracked)])].filter((path) => !removed.has(path));
+    }
+
+    async walkFiles() {
+        const files = [];
+        const queue = [""];
+        while (queue.length && files.length <= MAX_FILES) {
+            const prefix = queue.shift();
+            let items;
+            try { items = await readdir(join(this.root, prefix), { withFileTypes: true }); }
+            catch { continue; }
+            for (const item of items) {
+                if (files.length > MAX_FILES) break;
+                if (!prefix && this.ignore.has(item.name)) continue;
+                if (skipForFiles.has(item.name)) continue;
+                const relativePath = prefix ? `${prefix}/${item.name}` : item.name;
+                if (item.isDirectory()) queue.push(relativePath);
+                else if (item.isFile()) files.push(relativePath);
+                else if (item.isSymbolicLink()) {
+                    // Like git, list symlinked files but never descend into symlinked directories (no cycles).
+                    try {
+                        const target = await realpath(join(this.root, relativePath));
+                        if (this.contains(target) && (await stat(target)).isFile()) files.push(relativePath);
+                    } catch { /* dangling link */ }
+                }
+            }
+        }
+        return files;
     }
 }

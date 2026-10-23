@@ -61,11 +61,18 @@ test("dev entry waits for session storage and uses the current checkout", async 
     execFile.mockImplementation((_node, _args, _options, callback) => { finishBuild = callback; });
     const rebuilding = reload();
     await vi.waitFor(() => expect(execFile).toHaveBeenCalledOnce());
-    expect(execFile.mock.lastCall.slice(0, 3)).toEqual([process.execPath, [join(root, "scripts/build.mjs")], { cwd: root }]);
+    expect(execFile.mock.lastCall.slice(0, 3)).toEqual(["node", [join(root, "scripts/build.mjs")], { cwd: root }]);
     finishBuild(new Error("Build failed: syntax error"));
     const failure = await rebuilding;
     expect(failure.status).toBe(500);
     expect((await failure.json()).message).toContain("Build failed: syntax error");
+    execFile.mockImplementation((_node, _args, _options, callback) => callback(Object.assign(new Error("spawn node ENOENT"), { code: "ENOENT" })));
+    const missingNode = await reload();
+    expect(missingNode.status).toBe(500);
+    expect(await missingNode.json()).toMatchObject({
+        error: "dev_node_unavailable",
+        message: expect.stringContaining("Node.js on the app's PATH"),
+    });
     execFile.mockImplementation((_node, _args, _options, callback) => callback(null, "", ""));
     expect((await reload()).status).toBe(200);
     execFile.mockReset();

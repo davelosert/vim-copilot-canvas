@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { mountApp } from "../../src/frontend/app.js";
 import { createExplorer } from "../../src/frontend/explorer.js";
+import { createFinder } from "../../src/frontend/finder.js";
 import { renderMarkdown, wordCount } from "../../src/frontend/markdown.js";
 import "../../src/frontend/primer.css";
 
@@ -21,7 +22,7 @@ afterEach(() => {
     for (const property of ["--editor-accent", "--editor-accent-contrast", "--editor-surface", "--editor-page",
         "--editor-canvas", "--editor-text", "--editor-muted", "--editor-border", "--editor-soft",
         "--editor-selection", "--editor-success", "--editor-warning", "--editor-danger", "--editor-important",
-        "--tree-folder-color", "--tree-markdown-color"]) {
+        "--tree-folder-color", "--tree-markdown-color", "--font-mono"]) {
         document.documentElement.style.removeProperty(property);
     }
     vi.restoreAllMocks();
@@ -34,7 +35,7 @@ function fakeApi() {
     ]);
     let revision = 0;
     let current = { path: "/work/a.md", name: "a.md", content: files.get("/work/a.md"), revision: "r0", diskHash: "d0", dirty: false, conflict: false };
-    let settings = { relativeLineNumbers: false, showKeyboardShortcutIndicators: true, theme: "system" };
+    let settings = { relativeLineNumbers: false, showKeyboardShortcutIndicators: true, theme: "system", font: "neon" };
     let items = [];
     const tree = () => ({ root: "/work", rootName: "work", entries: [...files.keys()].map((path) => ({ path, name: path.split("/").pop(), type: "file" })) });
     const api = vi.fn(async (path, input) => {
@@ -58,7 +59,15 @@ function fakeApi() {
             current = { path: target, name: target.split("/").pop(), content: files.get(target), revision: `r${++revision}`, diskHash: "d0", dirty: false, conflict: false };
             return { ...current };
         }
+        if (path === "files/move") {
+            const target = input.to.startsWith("/") ? input.to : `/work/${input.to}`;
+            files.set(target, files.get(input.from));
+            files.delete(input.from);
+            if (current.path === input.from) current = { ...current, path: target, name: target.split("/").pop() };
+            return { from: input.from, path: target, type: "file" };
+        }
         if (path.startsWith("tree")) return tree();
+        if (path === "files") return { root: "/work", separator: "/", files: [...files.keys()].map((file) => file.slice(6)), truncated: false, recent: ["b.js"] };
         if (path === "review") return { items: [...items] };
         if (path === "review/add") {
             items.push({ ...input, id: `item-${items.length}`, label: `${input.path.split("/").pop()}:1`, lines: input.lines ?? [{ start: 1, end: 1 }] });
@@ -110,6 +119,156 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    it("leaves finder shortcuts to the IME during composition", async () => {
+        const { app, api } = await fixture();
+        app.editor.focus();
+        await key(":Files{Enter}");
+        await expect.poll(() => $("finder-list").children.length).toBe(2);
+        const input = $("finder-input");
+        const shortcuts = [
+            { key: "ArrowDown" }, { key: "ArrowUp" },
+            { key: "PageDown" }, { key: "PageUp" },
+            ...["n", "j", "p", "k"].map((key) => ({ key, ctrlKey: true })),
+            { key: "p", metaKey: true }, { key: "Enter" }, { key: "Escape" },
+        ];
+        for (const shortcut of shortcuts) {
+            const event = new KeyboardEvent("keydown", {
+                ...shortcut, isComposing: true, bubbles: true, cancelable: true,
+            });
+            input.dispatchEvent(event);
+            expect(event.defaultPrevented).toBe(false);
+            expect(input.getAttribute("aria-activedescendant")).toBe("finder-option-0");
+            expect($("finder").open).toBe(true);
+        }
+        expect(api.mock.calls.some(([path]) => path === "open")).toBe(false);
+        await key("{ArrowDown}");
+        expect(input.getAttribute("aria-activedescendant")).toBe("finder-option-1");
+        await key("{Escape}");
+        expect($("finder").open).toBe(false);
+    });
+
+    it("preserves finder selection when a refresh cancels a pending input debounce", async () => {
+        document.body.innerHTML = new DOMParser().parseFromString(markup, "text/html").body.innerHTML;
+        const listing = {
+            root: "/work", separator: "/", recent: [], truncated: false,
+            files: ["a.md", "b.md", ...Array.from({ length: 4999 }, (_, index) => `${index}.txt`)],
+        };
+        const refresh = deferred();
+        const api = vi.fn().mockResolvedValueOnce(listing).mockReturnValueOnce(refresh.promise);
+        const onOpen = vi.fn();
+        const finder = createFinder({
+            elements: { dialog: $("finder"), input: $("finder-input"), list: $("finder-list"), status: $("finder-status") },
+            api, onOpen, onError: vi.fn(), window,
+        });
+        mounted.push(finder);
+        finder.open();
+        await expect.poll(() => $("finder-status").textContent).toBe("5001 files");
+        finder.close();
+        await new Promise((resolve) => $("finder").addEventListener("close", resolve, { once: true }));
+        finder.open();
+        $("finder-input").value = ".md";
+        $("finder-input").dispatchEvent(new Event("input", { bubbles: true }));
+        refresh.resolve(listing);
+        await Promise.resolve();
+        expect($("finder-list").children.length).toBe(2);
+        $("finder-input").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+        expect($("finder-input").getAttribute("aria-activedescendant")).toBe("finder-option-1");
+        $("finder-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        expect(onOpen).toHaveBeenCalledWith("/work/b.md");
+    });
+
+    it("keeps editor focus when choosing the current file from the explorer finder", async () => {
+        const { app } = await fixture();
+        await showSidebar();
+        $("tree").focus();
+        await key("f");
+        await expect.poll(() => $("finder").open).toBe(true);
+        await key("a.md");
+        await expect.poll(() => $("finder-list").children.length).toBe(1);
+        await key("{Enter}");
+        await expect.poll(() => $("finder").open).toBe(false);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(app.editor.view.hasFocus).toBe(true);
+    });
+
+    it("opens files from the fuzzy finder with combobox and listbox semantics", async () => {
+        const { app } = await fixture();
+        const mac = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform);
+        const options = () => [...$("finder-list").children];
+        const selected = () => options().findIndex((row) => row.getAttribute("aria-selected") === "true");
+        app.editor.focus();
+        await key(mac ? "{Meta>}p{/Meta}" : "{Control>}p{/Control}");
+        await expect.poll(() => $("finder").open).toBe(true);
+        expect(document.activeElement).toBe($("finder-input"));
+        expect($("finder-input").getAttribute("role")).toBe("combobox");
+        expect($("finder-input").getAttribute("aria-controls")).toBe("finder-list");
+        expect($("finder-list").getAttribute("role")).toBe("listbox");
+        await expect.poll(() => options().map((row) => row.dataset.path)).toEqual(["b.js", "a.md"]);
+        expect(options().every((row) => row.getAttribute("role") === "option")).toBe(true);
+        expect(options()[0].textContent).toContain("recent");
+        expect($("finder-input").getAttribute("aria-activedescendant")).toBe("finder-option-0");
+        expect($("finder-status").textContent).toBe("2 files");
+        await key("{ArrowDown}");
+        expect(selected()).toBe(1);
+        expect($("finder-input").getAttribute("aria-activedescendant")).toBe("finder-option-1");
+        await key("{Control>}p{/Control}");
+        expect(selected()).toBe(0);
+        await key("{Control>}n{/Control}");
+        expect(selected()).toBe(1);
+        await key("{Control>}k{/Control}");
+        expect(selected()).toBe(0);
+        await key("{Control>}j{/Control}");
+        expect(selected()).toBe(1);
+        await key("{Escape}");
+        expect($("finder").open).toBe(false);
+        await expect.poll(() => app.editor.view.hasFocus).toBe(true);
+        expect(app.controller.getState().current.path).toBe("/work/a.md");
+
+        await key(":Files{Enter}");
+        await expect.poll(() => $("finder").open).toBe(true);
+        await expect.poll(() => document.activeElement).toBe($("finder-input"));
+        await key("bjs");
+        await expect.poll(() => options().map((row) => row.dataset.path)).toEqual(["b.js"]);
+        expect([...options()[0].querySelectorAll("mark")].map((mark) => mark.textContent)).toEqual(["b", "j", "s"]);
+        await key("{Enter}");
+        await expect.poll(() => app.controller.getState().current.path).toBe("/work/b.js");
+        expect($("finder").open).toBe(false);
+        await expect.poll(() => app.editor.view.hasFocus).toBe(true);
+
+        await showSidebar();
+        $("tree").focus();
+        await key("f");
+        await expect.poll(() => $("finder").open).toBe(true);
+        expect($("finder-input").value).toBe("");
+        await key("a.md");
+        await userEvent.click(options()[0]);
+        await expect.poll(() => app.controller.getState().current.path).toBe("/work/a.md");
+        expect($("finder").open).toBe(false);
+    });
+
+    it("opens the finder with Space f while Space keeps moving right otherwise", async () => {
+        const { app } = await fixture();
+        const head = () => app.editor.view.state.selection.main.head;
+        app.editor.focus();
+        await key(" f");
+        await expect.poll(() => $("finder").open).toBe(true);
+        await key("{Escape}");
+        await expect.poll(() => app.editor.view.hasFocus).toBe(true);
+        expect(head()).toBe(0);
+        await key(" ");
+        expect(head()).toBe(0);
+        await expect.poll(head, { timeout: 3000 }).toBe(1);
+        await key("0 l");
+        expect(head()).toBe(2);
+        await key("02 l");
+        expect(head()).toBe(3);
+        await key("0v  ");
+        await expect.poll(head).toBe(3);
+        await key("{Escape}0d ");
+        await expect.poll(() => app.editor.view.state.doc.toString().startsWith(" Title")).toBe(true);
+        expect($("finder").open).toBe(false);
+    });
+
     it.each(["change", "batch"])("keeps the previous review visible until the next %s record is ready", async (type) => {
         const { api, app } = await fixture();
         await showSidebar();
@@ -719,6 +878,42 @@ describe("mounted frontend with real CodeMirror", () => {
         await expect.poll(() => Math.abs(scrollProgress(preview) - scrollProgress(source))).toBeLessThan(0.01);
     });
 
+    it("enables scroll synchronization when an open text file is renamed to Markdown", async () => {
+        const { app, files } = await fixture();
+        files.set("/work/b.js", longMarkdown);
+        await app.controller.open("/work/b.js");
+        const source = app.editor.view.scrollDOM, preview = $("preview");
+        await nextFrames();
+        scrollToProgress(source, 0.4);
+        await nextFrames();
+        const before = source.scrollTop;
+        const state = app.editor.view.state;
+        await showSidebar();
+        $("tree").focus();
+        await key("r");
+        await expect.poll(() => document.activeElement.id).toBe("tree-prompt-input");
+        $("tree-prompt-input").value = "b.md";
+        await key("{Enter}");
+        await expect.poll(() => app.controller.getState().current.name).toBe("b.md");
+        await expect.poll(() => preview.querySelectorAll("h2").length).toBe(100);
+        await nextFrames();
+        expect(Math.abs(source.scrollTop - before)).toBeLessThan(2);
+        expect(app.editor.view.state.doc).toBe(state.doc);
+        scrollToProgress(source, 0.7);
+        await expect.poll(() => Math.abs(scrollProgress(preview) - scrollProgress(source))).toBeLessThan(0.005);
+        await nextFrames();
+        const sourceTop = source.scrollTop, previewTop = preview.scrollTop;
+        $("tree").focus();
+        await key("r");
+        await expect.poll(() => document.activeElement.id).toBe("tree-prompt-input");
+        $("tree-prompt-input").value = "renamed.md";
+        await key("{Enter}");
+        await expect.poll(() => app.controller.getState().current.name).toBe("renamed.md");
+        await nextFrames();
+        expect(Math.abs(source.scrollTop - sourceTop)).toBeLessThan(2);
+        expect(Math.abs(preview.scrollTop - previewTop)).toBeLessThan(2);
+    });
+
     it("resets scrolling on file switches and handles documents without overflow", async () => {
         const { app, files } = await fixture();
         files.set("/work/a.md", longMarkdown);
@@ -921,13 +1116,16 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("show-keyboard-shortcut-indicators"));
         await userEvent.click($("relative-line-numbers"));
         await userEvent.selectOptions($("editor-theme"), "dracula");
+        await userEvent.selectOptions($("editor-font"), "argon");
         expect(writes).toHaveLength(0);
         expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("true");
         expect(getComputedStyle(document.documentElement).getPropertyValue("--editor-canvas").trim()).toBe("#282a36");
+        expect(getComputedStyle($("editor").querySelector(".cm-scroller")).fontFamily).toContain("Monaspace Argon");
         await userEvent.click($("save-settings"));
         expect(writes).toHaveLength(1);
-        expect(writes[0].input).toEqual({ relativeLineNumbers: true, theme: "dracula" });
+        expect(writes[0].input).toEqual({ relativeLineNumbers: true, theme: "dracula", font: "argon" });
         await userEvent.selectOptions($("editor-theme"), "nord");
+        await userEvent.selectOptions($("editor-font"), "xenon");
         await userEvent.click($("show-keyboard-shortcut-indicators"));
         expect($("close-settings").disabled).toBe(true);
         expect($("discard-settings").disabled).toBe(true);
@@ -942,13 +1140,14 @@ describe("mounted frontend with real CodeMirror", () => {
         expect($("show-keyboard-shortcut-indicators").checked).toBe(false);
         expect($("relative-line-numbers").checked).toBe(true);
         expect($("editor-theme").value).toBe("nord");
+        expect($("editor-font").value).toBe("xenon");
         expect(app.editor.currentTheme()).toBe(theme);
         await userEvent.click($("save-settings"));
         expect(writes).toHaveLength(2);
-        expect(writes[1].input).toEqual({ showKeyboardShortcutIndicators: false, theme: "nord" });
+        expect(writes[1].input).toEqual({ showKeyboardShortcutIndicators: false, theme: "nord", font: "xenon" });
         writes[1].resolve(await original("settings", writes[1].input));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-        expect(await original("settings")).toEqual({ showKeyboardShortcutIndicators: false, relativeLineNumbers: true, theme: "nord" });
+        expect(await original("settings")).toEqual({ showKeyboardShortcutIndicators: false, relativeLineNumbers: true, theme: "nord", font: "xenon" });
     });
 
     it("ignores a stale settings refresh and keeps failed Save previews available for retry", async () => {
@@ -963,7 +1162,7 @@ describe("mounted frontend with real CodeMirror", () => {
         });
         await userEvent.click($("settings-button"));
         await userEvent.click($("show-keyboard-shortcut-indicators"));
-        refresh.resolve({ relativeLineNumbers: false, theme: "dracula", showKeyboardShortcutIndicators: true });
+        refresh.resolve({ relativeLineNumbers: false, theme: "dracula", showKeyboardShortcutIndicators: true, font: "neon" });
         await expect.poll(() => $("settings-status").textContent).toBe("Unsaved changes.");
         expect(document.documentElement.dataset.showKeyboardShortcutIndicators).toBe("false");
         expect($("editor-theme").value).toBe("system");
@@ -976,12 +1175,12 @@ describe("mounted frontend with real CodeMirror", () => {
         expect(writes).toBe(1);
         expect($("show-keyboard-shortcut-indicators").checked).toBe(false);
         expect($("relative-line-numbers").checked).toBe(true);
-        expect(await original("settings")).toEqual({ relativeLineNumbers: false, theme: "system", showKeyboardShortcutIndicators: true });
+        expect(await original("settings")).toEqual({ relativeLineNumbers: false, theme: "system", showKeyboardShortcutIndicators: true, font: "neon" });
         await userEvent.click($("save-settings"));
         expect(writes).toBe(2);
         second.resolve(await original("settings", { relativeLineNumbers: true, showKeyboardShortcutIndicators: false }));
         await expect.poll(() => $("settings-status").textContent).toBe("Settings saved.");
-        expect(await original("settings")).toEqual({ relativeLineNumbers: true, theme: "system", showKeyboardShortcutIndicators: false });
+        expect(await original("settings")).toEqual({ relativeLineNumbers: true, theme: "system", showKeyboardShortcutIndicators: false, font: "neon" });
     });
 
     it.each(["discard-settings", "close-settings", "Escape"])("restores the last saved settings without a write on %s", async (action) => {
@@ -1027,7 +1226,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("settings-button"));
         await userEvent.selectOptions($("editor-theme"), "dracula");
         await userEvent.click($("close-settings"));
-        refresh.resolve({ relativeLineNumbers: true, theme: "nord", showKeyboardShortcutIndicators: false });
+        refresh.resolve({ relativeLineNumbers: true, theme: "nord", showKeyboardShortcutIndicators: false, font: "neon" });
         await Promise.resolve();
         await Promise.resolve();
         expect($("editor-theme").value).toBe("system");
@@ -1079,6 +1278,9 @@ describe("mounted frontend with real CodeMirror", () => {
         await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(1);
         const prompt = document.querySelector(".agent-prompt");
         const inner = prompt.querySelector(".agent-input .cm-editor");
+        const promptScroller = inner.querySelector(".cm-scroller");
+        expect(getComputedStyle(promptScroller).lineHeight).toBe("19.5px");
+        expect(getComputedStyle(promptScroller).fontFamily).not.toBe(getComputedStyle(document.querySelector("#editor .cm-scroller")).fontFamily);
         await expect.poll(() => inner.classList.contains("cm-focused")).toBe(true);
         // The outer editor is in Normal mode; its Vim styles must not hide the prompt's insert caret.
         expect(document.querySelector("#editor .cm-scroller").classList.contains("cm-vimMode")).toBe(true);
@@ -1463,7 +1665,7 @@ describe("mounted frontend with real CodeMirror", () => {
         await userEvent.click($("settings-button"));
         expect($("settings-status").textContent).toBe("Loading settings...");
         app.dispose();
-        response.resolve({ theme: "dracula", relativeLineNumbers: true });
+        response.resolve({ theme: "dracula", relativeLineNumbers: true, font: "neon" });
         await Promise.resolve();
         await Promise.resolve();
         expect($("settings-status").textContent).toBe("Loading settings...");
@@ -1497,6 +1699,36 @@ describe("mounted frontend with real CodeMirror", () => {
         expect($("agent-status").textContent).toBe("");
         expect(app.controller.getState().current.name).toBe("b.js");
     });
+});
+
+it("copies Windows paths using only the filename and the selected destination folder", async () => {
+    const tree = document.createElement("div");
+    tree.tabIndex = 0;
+    document.body.append(tree);
+    const root = "C:\\work", source = `${root}\\a.md`, folder = `${root}\\docs`, target = `${folder}\\a.md`;
+    let copied = false;
+    const api = vi.fn(async (path) => {
+        if (path === "files/copy") {
+            copied = true;
+            return { from: source, path: target, type: "file" };
+        }
+        if (decodeURIComponent(path).includes(folder)) {
+            return { entries: copied ? [{ path: target, name: "a.md", type: "file" }] : [] };
+        }
+        return { root, rootName: "work", entries: [
+            { path: folder, name: "docs", type: "directory" },
+            { path: source, name: "a.md", type: "file" },
+        ] };
+    });
+    const onError = vi.fn();
+    const explorer = createExplorer({ tree, api, onError, onOpen: vi.fn(), onLeave: vi.fn(), onHide: vi.fn() });
+    mounted.push(explorer);
+    await explorer.init(source);
+    tree.focus();
+    await userEvent.keyboard("ckp");
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("files/copy", { from: source, to: "docs/a.md" }));
+    await vi.waitFor(() => expect([...tree.querySelectorAll(".tree-row")].some((row) => row.dataset.path === target)).toBe(true));
+    expect(onError).not.toHaveBeenCalled();
 });
 
 it("scopes explorer rows to its supplied root and stops late loads after disposal", async () => {
@@ -1581,7 +1813,12 @@ it("runs explorer file operations from keys, the inline prompt and the context m
     await userEvent.keyboard("r");
     await vi.waitFor(() => expect(input.value).toBe("notes/new.md"));
     expect(input.value.slice(input.selectionStart, input.selectionEnd)).toBe("new");
-    await userEvent.keyboard("renamed{Enter}");
+    input.value = "a.md";
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(document.getElementById("op-label").textContent).toContain("already exists"));
+    expect(input.value).toBe("a.md");
+    input.value = "notes/renamed.md";
+    await userEvent.keyboard("{Enter}");
     await vi.waitFor(() => expect(row("/work/notes/renamed.md")).not.toBeNull());
     expect(row("/work/notes/new.md")).toBeNull();
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ action: "move", from: "/work/notes/new.md", path: "/work/notes/renamed.md" }));
@@ -1593,11 +1830,17 @@ it("runs explorer file operations from keys, the inline prompt and the context m
     await settled();
     expect(document.activeElement).toBe(tree);
 
+    await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+    const menu = document.getElementById("op-menu");
+    expect(menu.hidden).toBe(false);
+    for (const action of ["rename", "delete", "cut", "copy"]) {
+        expect(menu.querySelector(`[data-action="${action}"]`).hidden).toBe(false);
+    }
+    await userEvent.keyboard("{Escape}");
     tree.focus();
     await userEvent.keyboard("x");
     expect(row("/work/notes/renamed.md").dataset.clipboard).toBe("cut");
     row("/work/docs").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 }));
-    const menu = document.getElementById("op-menu");
     await vi.waitFor(() => expect(menu.hidden).toBe(false));
     menu.querySelector('[data-action="paste"]').click();
     await vi.waitFor(() => expect(row("/work/docs/renamed.md")).not.toBeNull());

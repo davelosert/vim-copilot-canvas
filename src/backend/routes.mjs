@@ -1,4 +1,4 @@
-import { basename, isAbsolute, sep } from "node:path";
+import { basename, isAbsolute, relative, sep } from "node:path";
 import { EditorError } from "./errors.mjs";
 import { createFileOperations } from "./file-operations.mjs";
 import { composeReview, summarize } from "./review-store.mjs";
@@ -10,8 +10,19 @@ import { readImage } from "./images.mjs";
  * path and exposes the same open/current-document operations to HTTP and SDK
  * callers. Handlers return JSON bodies or throw EditorError.
  */
-export function createRoutes({ store, workspace, document, reviews, settings, sendMessage, markdown }) {
+export function createRoutes({ store, workspace, document, reviews, recents, settings, sendMessage, markdown }) {
     const state = { activePath: document.path };
+    // Recents are a convenience: failing to record one never fails the open.
+    const remember = (path) => recents?.add(workspace.root, path).catch(() => {});
+    const initialized = workspace.contains(document.path) ? remember(document.path) : Promise.resolve();
+    const files = async () => {
+        const listing = await workspace.files();
+        const known = new Set(listing.files);
+        const recent = (await recents?.list(workspace.root).catch(() => []) ?? [])
+            .map((path) => relative(workspace.root, path).split(sep).join("/"))
+            .filter((path) => known.has(path));
+        return { ...listing, recent };
+    };
     const deliver = createDelivery(sendMessage);
     const sendRecorded = async ({ type, prompt, items, deliveryId }) => {
         for (const item of items) await load(item.path);
@@ -36,7 +47,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
         return messageId;
     };
     const review = async () => ({ items: summarize(await reviews.list(workspace.root)) });
-    const files = createFileOperations({ store, workspace, reviews });
+    const fileOperations = createFileOperations({ store, workspace, reviews });
     const activePath = () => (state.activePath = store.successor(state.activePath));
     const load = async (path) => {
         const requested = path ?? activePath();
@@ -54,6 +65,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
     const openFile = async (path) => {
         const target = await load(path);
         state.activePath = target.path;
+        await remember(target.path);
         return target;
     };
 
@@ -83,6 +95,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
     const get = new Map([
         ["/api/document", async (query) => snapshot(await load(query.get("path") ?? undefined))],
         ["/api/tree", (query) => workspace.list(query.get("dir") ?? undefined)],
+        ["/api/files", () => files()],
         ["/api/settings", () => settings.read()],
         ["/api/review", () => review()],
         ["/api/history", async (query) => {
@@ -112,6 +125,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
         ["/api/reload", revisionInput((target, input) => store.reload(target, input.revision, input.diskHash))],
         ["/api/open", documentInput(async (target) => {
             state.activePath = target.path;
+            await remember(target.path);
             return snapshot(target);
         })],
         ["/api/agent", selectionInput(async (target, input, prompt, attachments) =>
@@ -150,11 +164,11 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
             await reviews.remove(workspace.root, items.map((item) => item.id));
             return { messageId, ...(await review()) };
         })],
-        ["/api/files/create", objectInput((input) => files.create(input.path, input.type))],
-        ["/api/files/move", objectInput((input) => files.move(input.from, input.to))],
-        ["/api/files/copy", objectInput((input) => files.copy(input.from, input.to))],
+        ["/api/files/create", objectInput((input) => fileOperations.create(input.path, input.type))],
+        ["/api/files/move", objectInput((input) => fileOperations.move(input.from, input.to))],
+        ["/api/files/copy", objectInput((input) => fileOperations.copy(input.from, input.to))],
         ["/api/files/delete", objectInput(async (input) => {
-            const result = await files.delete(input.path);
+            const result = await fileOperations.delete(input.path);
             const current = activePath();
             if (current !== result.path && !current.startsWith(`${result.path}${sep}`)) return result;
             let fallback = null;
@@ -169,7 +183,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
     ]);
 
     return {
-        state, workspace, get, post, openFile,
+        state, workspace, get, post, openFile, initialized,
         get document() { return load(); },
     };
 }

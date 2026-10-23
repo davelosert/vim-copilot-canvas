@@ -194,11 +194,14 @@ export function createDocumentController({ api, readText, onState = () => {}, on
             status = "Disk version loaded";
             emit();
         }),
-        markDeleted: () => enqueue(() => {
+        markDeleted: (path = current.path, fallback) => enqueue(async () => {
+            if (current.path !== path && !current.path.startsWith(`${path}/`) && !current.path.startsWith(`${path}\\`)) return false;
             deleted = true;
             cancelScheduledSave();
             status = "File deleted";
             emit();
+            if (fallback) await openInternal(fallback);
+            return true;
         }),
         poll: () => enqueue(async () => {
             if (deleted) return;
@@ -233,6 +236,7 @@ export function createDocumentController({ api, readText, onState = () => {}, on
             if (disposed) return;
             snapshot = await api.document(current.path);
             if (disposed) return;
+            if (snapshot.path !== current.path) take({ ...current, path: snapshot.path, name: snapshot.name });
             if (snapshot.activePath && snapshot.activePath !== current.path) {
                 return openInternal(snapshot.activePath, { fromServer: true });
             }

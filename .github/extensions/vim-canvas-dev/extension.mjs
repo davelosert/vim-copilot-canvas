@@ -14,8 +14,15 @@ let provider;
 let rebuilding;
 
 function devReload() {
-    return rebuilding ??= promisify(execFile)(process.execPath, [join(root, "scripts/build.mjs")], { cwd: root })
+    // The extension host's process.execPath can be the bundled Copilot executable, not Node.
+    return rebuilding ??= promisify(execFile)("node", [join(root, "scripts/build.mjs")], { cwd: root })
         .then(() => ({}))
+        .catch((error) => {
+            if (error.code === "ENOENT") {
+                throw new CanvasError("dev_node_unavailable", "Reload canvas requires Node.js on the app's PATH. Install a supported Node.js version and restart the app.");
+            }
+            throw error;
+        })
         .finally(() => { rebuilding = undefined; });
 }
 

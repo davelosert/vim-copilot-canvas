@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { test } from "vitest";
-import { resolveInitialTarget } from "../../src/backend/workspace.mjs";
-import { Workspace, tempDir, workspaceTree } from "../helpers/fixtures.mjs";
+import { execFile } from "node:child_process";
+import { mkdir, symlink, unlink, writeFile } from "node:fs/promises";
+import { join, sep } from "node:path";
+import { test, vi } from "vitest";
+import { MAX_FILES, resolveInitialTarget } from "../../src/backend/workspace.mjs";
+import { Workspace, tempDir, workspaceTree, writeFiles } from "../helpers/fixtures.mjs";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+    const fs = await importOriginal();
+    return { ...fs, readdir: vi.fn(fs.readdir) };
+});
 
 test("workspace listing, first document and path resolution stay inside the root", async () => {
     const { base, rootDir, workspace } = await workspaceTree();
@@ -58,4 +64,139 @@ test("initial target is null for empty, missing, relative or absent working dire
     assert.equal(await resolveInitialTarget({ workingDirectory: join(base, "missing") }), null);
     assert.equal(await resolveInitialTarget({ workingDirectory: "relative" }), null);
     assert.equal(await resolveInitialTarget({}), null);
+});
+
+const run = (cwd, ...args) => new Promise((resolve, reject) => {
+    execFile("git", args, { cwd }, (error, stdout) => error ? reject(error) : resolve(stdout));
+});
+
+test("empty Git listings do not fall back to ignored files", async () => {
+    const root = await tempDir("vim-files-empty-git-");
+    await writeFiles(root, { ".gitignore": "*\n", "hidden.txt": "ignored\n", "nested/hidden.txt": "ignored\n" });
+    await run(root, "init", "-q");
+    for (const rootPath of [root, join(root, "nested")]) {
+        const workspace = await Workspace.create({ rootPath });
+        assert.deepEqual((await workspace.files()).files, []);
+    }
+});
+
+test("fallback prunes ignored roots before they consume the file limit", async () => {
+    const root = await tempDir("vim-files-prune-");
+    await writeFiles(root, { "artifacts/draft.md": "draft\n", "src/deep/main.js": "source\n" });
+    const workspace = await Workspace.create({ rootPath: root, ignore: ["artifacts"] });
+    // Simulate an oversized ignored directory without creating 50,000 files.
+    const readdir = await import("node:fs/promises");
+    const { readdir: original } = await vi.importActual("node:fs/promises");
+    const listing = vi.spyOn(readdir, "readdir").mockImplementation(async (path, options) => {
+        if (path === join(root, "artifacts")) return Array.from({ length: MAX_FILES + 1 }, (_, index) => ({
+            name: `${index}.md`, isDirectory: () => false, isFile: () => true,
+        }));
+        return original(path, options);
+    });
+    try {
+        const result = await workspace.files();
+        assert.deepEqual(result.files, ["src/deep/main.js"]);
+        assert.equal(result.truncated, false);
+        assert.equal(listing.mock.calls.some(([path]) => path === join(root, "artifacts")), false);
+    } finally {
+        listing.mockRestore();
+    }
+});
+
+test("file search lists git files, respects .gitignore and skips deleted and ignored roots", async () => {
+    const root = await tempDir("vim-files-git-");
+    await writeFiles(root, {
+        ".gitignore": "dist/\n*.log\n",
+        "README.md": "# Readme\n",
+        "src/app.js": "app\n",
+        "src/deleted.js": "gone\n",
+        "dist/bundle.js": "built\n",
+        "debug.log": "log\n",
+        "node_modules/pkg/index.js": "module\n",
+        "artifacts/draft.md": "draft\n",
+        "notes/untracked.md": "new\n",
+    });
+    await writeFile(join(root, ".gitignore"), "dist/\n*.log\nnode_modules/\n");
+    await run(root, "init", "-q");
+    await run(root, "add", "README.md", "src", ".gitignore");
+    await unlink(join(root, "src", "deleted.js"));
+    const workspace = await Workspace.create({ rootPath: root, ignore: ["artifacts"] });
+    const result = await workspace.files();
+    assert.equal(result.root, root);
+    assert.equal(result.separator, sep);
+    assert.equal(result.truncated, false);
+    assert.deepEqual(result.files, [".gitignore", "notes/untracked.md", "README.md", "src/app.js"]);
+
+    const nested = await Workspace.create({ rootPath: join(root, "src") });
+    assert.deepEqual((await nested.files()).files, ["app.js"]);
+});
+
+test("Git file search excludes dependency directories even without ignore rules", async () => {
+    const root = await tempDir("vim-files-dependencies-");
+    await writeFiles(root, {
+        "README.md": "readme\n",
+        "node_modules/tracked.js": "tracked dependency\n",
+        "node_modules/untracked.js": "untracked dependency\n",
+        "packages/app/node_modules/pkg/index.js": "nested dependency\n",
+        "src/app.js": "source\n",
+    });
+    await run(root, "init", "-q");
+    await run(root, "add", "README.md", "node_modules/tracked.js");
+    const workspace = await Workspace.create({ rootPath: root });
+    assert.deepEqual((await workspace.files()).files, ["README.md", "src/app.js"]);
+});
+
+test("Git file search excludes submodule gitlinks", async () => {
+    const root = await tempDir("vim-files-submodules-");
+    await writeFiles(root, { "README.md": "readme\n", "vendor/module/README.md": "module\n" });
+    await run(root, "init", "-q");
+    const module = join(root, "vendor", "module");
+    await run(module, "init", "-q");
+    await run(module, "add", "README.md");
+    await run(module, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "Initial");
+    await run(root, "add", "README.md", "vendor/module");
+    const workspace = await Workspace.create({ rootPath: root });
+    assert.deepEqual((await workspace.files()).files, ["README.md"]);
+});
+
+test("fallback stops processing directory entries at the file budget", async () => {
+    const root = await tempDir("vim-files-budget-");
+    const workspace = await Workspace.create({ rootPath: root });
+    const fs = await import("node:fs/promises");
+    const processed = vi.fn(() => false);
+    const entries = Array.from({ length: MAX_FILES + 10 }, (_, index) => ({
+        name: `${index}.md`, isDirectory: processed, isFile: () => true,
+    }));
+    const listing = vi.spyOn(fs, "readdir").mockResolvedValue(entries);
+    try {
+        assert.equal((await workspace.walkFiles()).length, MAX_FILES + 1);
+        assert.equal(processed.mock.calls.length, MAX_FILES + 1);
+        const result = await workspace.files();
+        assert.equal(result.files.length, MAX_FILES);
+        assert.equal(result.truncated, true);
+    } finally {
+        listing.mockRestore();
+    }
+});
+
+test("file search falls back to a walker outside git and caches until invalidated", async () => {
+    const root = await tempDir("vim-files-walk-");
+    await writeFiles(root, {
+        "a.md": "a\n",
+        "deep/nested/b.txt": "b\n",
+        ".git/config": "not a repository\n",
+        "node_modules/pkg/index.js": "module\n",
+        "drafts/x.md": "x\n",
+        ".github/workflow.yml": "on: push\n",
+    });
+    await symlink(join(root, "deep"), join(root, "link"));
+    await symlink(join(root, "a.md"), join(root, "deep", "alias.md"));
+    await symlink(join(root, "missing.md"), join(root, "dangling.md"));
+    const workspace = await Workspace.create({ rootPath: root, ignore: ["drafts"] });
+    const expected = [".github/workflow.yml", "a.md", "deep/alias.md", "deep/nested/b.txt"];
+    assert.deepEqual((await workspace.files()).files, expected);
+    await writeFile(join(root, "c.md"), "c\n");
+    assert.deepEqual((await workspace.files()).files, expected);
+    workspace.invalidateFiles();
+    assert.deepEqual((await workspace.files()).files, [".github/workflow.yml", "a.md", "c.md", "deep/alias.md", "deep/nested/b.txt"]);
 });
