@@ -1,5 +1,5 @@
 // Vim-style, mouse-friendly file tree. Directories load lazily from /api/tree.
-export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) {
+export function createExplorer({ tree, api, onOpen, onLeave, onHide, onFind = () => {}, onError }) {
     const nodes = new Map();
     const svgNamespace = "http://www.w3.org/2000/svg";
     let rootPath = null;
@@ -267,6 +267,7 @@ export function createExplorer({ tree, api, onOpen, onLeave, onHide, onError }) 
                 gTimer = setTimeout(() => { pendingG = false; }, 800);
             },
             R: () => run(refresh()),
+            f: onFind,
             "-": () => select(nodes.get(selected)?.parent?.path !== rootPath ? nodes.get(selected)?.parent?.path : selected),
             Escape: onLeave,
             q: onHide,

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { mountApp } from "../../src/frontend/app.js";
 import { createExplorer } from "../../src/frontend/explorer.js";
+import { createFinder } from "../../src/frontend/finder.js";
 import { renderMarkdown, wordCount } from "../../src/frontend/markdown.js";
 import "../../src/frontend/primer.css";
 
@@ -59,6 +60,7 @@ function fakeApi() {
             return { ...current };
         }
         if (path.startsWith("tree")) return tree();
+        if (path === "files") return { root: "/work", separator: "/", files: [...files.keys()].map((file) => file.slice(6)), truncated: false, recent: ["b.js"] };
         if (path === "review") return { items: [...items] };
         if (path === "review/add") {
             items.push({ ...input, id: `item-${items.length}`, label: `${input.path.split("/").pop()}:1`, lines: input.lines ?? [{ start: 1, end: 1 }] });
@@ -110,6 +112,156 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    it("leaves finder shortcuts to the IME during composition", async () => {
+        const { app, api } = await fixture();
+        app.editor.focus();
+        await key(":Files{Enter}");
+        await expect.poll(() => $("finder-list").children.length).toBe(2);
+        const input = $("finder-input");
+        const shortcuts = [
+            { key: "ArrowDown" }, { key: "ArrowUp" },
+            { key: "PageDown" }, { key: "PageUp" },
+            ...["n", "j", "p", "k"].map((key) => ({ key, ctrlKey: true })),
+            { key: "p", metaKey: true }, { key: "Enter" }, { key: "Escape" },
+        ];
+        for (const shortcut of shortcuts) {
+            const event = new KeyboardEvent("keydown", {
+                ...shortcut, isComposing: true, bubbles: true, cancelable: true,
+            });
+            input.dispatchEvent(event);
+            expect(event.defaultPrevented).toBe(false);
+            expect(input.getAttribute("aria-activedescendant")).toBe("finder-option-0");
+            expect($("finder").open).toBe(true);
+        }
+        expect(api.mock.calls.some(([path]) => path === "open")).toBe(false);
+        await key("{ArrowDown}");
+        expect(input.getAttribute("aria-activedescendant")).toBe("finder-option-1");
+        await key("{Escape}");
+        expect($("finder").open).toBe(false);
+    });
+
+    it("preserves finder selection when a refresh cancels a pending input debounce", async () => {
+        document.body.innerHTML = new DOMParser().parseFromString(markup, "text/html").body.innerHTML;
+        const listing = {
+            root: "/work", separator: "/", recent: [], truncated: false,
+            files: ["a.md", "b.md", ...Array.from({ length: 4999 }, (_, index) => `${index}.txt`)],
+        };
+        const refresh = deferred();
+        const api = vi.fn().mockResolvedValueOnce(listing).mockReturnValueOnce(refresh.promise);
+        const onOpen = vi.fn();
+        const finder = createFinder({
+            elements: { dialog: $("finder"), input: $("finder-input"), list: $("finder-list"), status: $("finder-status") },
+            api, onOpen, onError: vi.fn(), window,
+        });
+        mounted.push(finder);
+        finder.open();
+        await expect.poll(() => $("finder-status").textContent).toBe("5001 files");
+        finder.close();
+        await new Promise((resolve) => $("finder").addEventListener("close", resolve, { once: true }));
+        finder.open();
+        $("finder-input").value = ".md";
+        $("finder-input").dispatchEvent(new Event("input", { bubbles: true }));
+        refresh.resolve(listing);
+        await Promise.resolve();
+        expect($("finder-list").children.length).toBe(2);
+        $("finder-input").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+        expect($("finder-input").getAttribute("aria-activedescendant")).toBe("finder-option-1");
+        $("finder-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        expect(onOpen).toHaveBeenCalledWith("/work/b.md");
+    });
+
+    it("keeps editor focus when choosing the current file from the explorer finder", async () => {
+        const { app } = await fixture();
+        await showSidebar();
+        $("tree").focus();
+        await key("f");
+        await expect.poll(() => $("finder").open).toBe(true);
+        await key("a.md");
+        await expect.poll(() => $("finder-list").children.length).toBe(1);
+        await key("{Enter}");
+        await expect.poll(() => $("finder").open).toBe(false);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(app.editor.view.hasFocus).toBe(true);
+    });
+
+    it("opens files from the fuzzy finder with combobox and listbox semantics", async () => {
+        const { app } = await fixture();
+        const mac = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform);
+        const options = () => [...$("finder-list").children];
+        const selected = () => options().findIndex((row) => row.getAttribute("aria-selected") === "true");
+        app.editor.focus();
+        await key(mac ? "{Meta>}p{/Meta}" : "{Control>}p{/Control}");
+        await expect.poll(() => $("finder").open).toBe(true);
+        expect(document.activeElement).toBe($("finder-input"));
+        expect($("finder-input").getAttribute("role")).toBe("combobox");
+        expect($("finder-input").getAttribute("aria-controls")).toBe("finder-list");
+        expect($("finder-list").getAttribute("role")).toBe("listbox");
+        await expect.poll(() => options().map((row) => row.dataset.path)).toEqual(["b.js", "a.md"]);
+        expect(options().every((row) => row.getAttribute("role") === "option")).toBe(true);
+        expect(options()[0].textContent).toContain("recent");
+        expect($("finder-input").getAttribute("aria-activedescendant")).toBe("finder-option-0");
+        expect($("finder-status").textContent).toBe("2 files");
+        await key("{ArrowDown}");
+        expect(selected()).toBe(1);
+        expect($("finder-input").getAttribute("aria-activedescendant")).toBe("finder-option-1");
+        await key("{Control>}p{/Control}");
+        expect(selected()).toBe(0);
+        await key("{Control>}n{/Control}");
+        expect(selected()).toBe(1);
+        await key("{Control>}k{/Control}");
+        expect(selected()).toBe(0);
+        await key("{Control>}j{/Control}");
+        expect(selected()).toBe(1);
+        await key("{Escape}");
+        expect($("finder").open).toBe(false);
+        await expect.poll(() => app.editor.view.hasFocus).toBe(true);
+        expect(app.controller.getState().current.path).toBe("/work/a.md");
+
+        await key(":Files{Enter}");
+        await expect.poll(() => $("finder").open).toBe(true);
+        await expect.poll(() => document.activeElement).toBe($("finder-input"));
+        await key("bjs");
+        await expect.poll(() => options().map((row) => row.dataset.path)).toEqual(["b.js"]);
+        expect([...options()[0].querySelectorAll("mark")].map((mark) => mark.textContent)).toEqual(["b", "j", "s"]);
+        await key("{Enter}");
+        await expect.poll(() => app.controller.getState().current.path).toBe("/work/b.js");
+        expect($("finder").open).toBe(false);
+        await expect.poll(() => app.editor.view.hasFocus).toBe(true);
+
+        await showSidebar();
+        $("tree").focus();
+        await key("f");
+        await expect.poll(() => $("finder").open).toBe(true);
+        expect($("finder-input").value).toBe("");
+        await key("a.md");
+        await userEvent.click(options()[0]);
+        await expect.poll(() => app.controller.getState().current.path).toBe("/work/a.md");
+        expect($("finder").open).toBe(false);
+    });
+
+    it("opens the finder with Space f while Space keeps moving right otherwise", async () => {
+        const { app } = await fixture();
+        const head = () => app.editor.view.state.selection.main.head;
+        app.editor.focus();
+        await key(" f");
+        await expect.poll(() => $("finder").open).toBe(true);
+        await key("{Escape}");
+        await expect.poll(() => app.editor.view.hasFocus).toBe(true);
+        expect(head()).toBe(0);
+        await key(" ");
+        expect(head()).toBe(0);
+        await expect.poll(head, { timeout: 3000 }).toBe(1);
+        await key("0 l");
+        expect(head()).toBe(2);
+        await key("02 l");
+        expect(head()).toBe(3);
+        await key("0v  ");
+        await expect.poll(head).toBe(3);
+        await key("{Escape}0d ");
+        await expect.poll(() => app.editor.view.state.doc.toString().startsWith(" Title")).toBe(true);
+        expect($("finder").open).toBe(false);
+    });
+
     it.each(["change", "batch"])("keeps the previous review visible until the next %s record is ready", async (type) => {
         const { api, app } = await fixture();
         await showSidebar();

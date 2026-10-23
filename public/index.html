@@ -34,7 +34,7 @@
     <div id="files-panel" class="explorer-panel" role="tabpanel" aria-labelledby="files-tab">
     <div class="pane-label explorer-label"><span id="explorer-root" class="explorer-root">FILES</span><span class="explorer-actions"><button id="collapse-tree" class="mini" title="Collapse all" aria-label="Collapse all folders">⊟</button><button id="refresh-tree" class="mini" title="Refresh (R)" aria-label="Refresh file tree">↻</button></span></div>
     <div id="tree" role="tree" tabindex="0" aria-label="Files"></div>
-    <div class="explorer-hint"><kbd>j</kbd><kbd>k</kbd> move · <kbd>l</kbd> open · <kbd>h</kbd> close · <kbd>⌃w l</kbd> editor</div>
+    <div class="explorer-hint"><kbd>j</kbd><kbd>k</kbd> move · <kbd>l</kbd> open · <kbd>h</kbd> close · <kbd>f</kbd> find · <kbd>⌃w l</kbd> editor</div>
     </div>
     <div id="outline-panel" class="explorer-panel" role="tabpanel" aria-labelledby="outline-tab" hidden>
       <div class="pane-label explorer-label"><span id="outline-name" class="explorer-root">OUTLINE</span></div>
@@ -104,6 +104,11 @@
       <div class="settings-actions"><button id="discard-settings" type="button" disabled>Discard</button><button id="save-settings" type="button" disabled>Save</button></div>
     </div>
   </dialog>
+  <dialog id="finder" class="finder" aria-label="Go to file">
+    <input id="finder-input" type="text" role="combobox" aria-label="Search files by name" aria-autocomplete="list" aria-expanded="true" aria-controls="finder-list" aria-haspopup="listbox" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search files by name">
+    <ul id="finder-list" class="finder-list" role="listbox" aria-label="Matching files"></ul>
+    <div class="finder-footer"><span id="finder-status" role="status" aria-live="polite"></span><span class="finder-hint"><kbd>↑↓</kbd> / <kbd>Ctrl+n p</kbd> move · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close</span></div>
+  </dialog>
   <dialog id="help">
     <div class="dialog-heading"><div><span class="eyebrow">KEYBOARD FIRST</span><h1>Your familiar motions.</h1></div><button id="close-help" aria-label="Close shortcuts">×</button></div>
     <p>A text editor with Vim controls and a live preview for Markdown. Powered by CodeMirror, not a Neovim process.</p>
@@ -143,6 +148,13 @@
         <kbd>gg / G</kbd><span>First / last entry</span><kbd>Ctrl+d / Ctrl+u</kbd><span>Half page down / up</span>
         <kbd>R</kbd><span>Refresh tree</span><kbd>q / :Lex</kbd><span>Hide / toggle explorer</span>
         <kbd>:e path</kbd><span>Open a file relative to the root</span><kbd>Click</kbd><span>Open file / toggle folder</span>
+      </div>
+    </section>
+    <section class="shortcut-section">
+      <span class="eyebrow">QUICK OPEN</span>
+      <div class="shortcut-grid">
+        <kbd>Cmd/Ctrl+p / :Files</kbd><span>Fuzzy-search every workspace file</span><kbd>Space f / f (explorer)</kbd><span>Open the finder from Vim / the explorer</span>
+        <kbd>Up / Down / Ctrl+n / Ctrl+p</kbd><span>Next / previous match (also Ctrl+j / Ctrl+k)</span><kbd>Enter / Esc</kbd><span>Open the file / close the finder</span>
       </div>
     </section>
     <section class="shortcut-section">

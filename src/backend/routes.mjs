@@ -1,3 +1,4 @@
+import { relative, sep } from "node:path";
 import { EditorError } from "./errors.mjs";
 import { composeReview, summarize } from "./review-store.mjs";
 import { buildAttachments, createDelivery, validPrompt, requestContext } from "./agent-delivery.mjs";
@@ -8,8 +9,19 @@ import { readImage } from "./images.mjs";
  * path and exposes the same open/current-document operations to HTTP and SDK
  * callers. Handlers return JSON bodies or throw EditorError.
  */
-export function createRoutes({ store, workspace, document, reviews, settings, sendMessage, markdown }) {
+export function createRoutes({ store, workspace, document, reviews, recents, settings, sendMessage, markdown }) {
     const state = { activePath: document.path };
+    // Recents are a convenience: failing to record one never fails the open.
+    const remember = (path) => recents?.add(workspace.root, path).catch(() => {});
+    const initialized = workspace.contains(document.path) ? remember(document.path) : Promise.resolve();
+    const files = async () => {
+        const listing = await workspace.files();
+        const known = new Set(listing.files);
+        const recent = (await recents?.list(workspace.root).catch(() => []) ?? [])
+            .map((path) => relative(workspace.root, path).split(sep).join("/"))
+            .filter((path) => known.has(path));
+        return { ...listing, recent };
+    };
     const deliver = createDelivery(sendMessage);
     const sendRecorded = async ({ type, prompt, items, deliveryId }) => {
         for (const item of items) await load(item.path);
@@ -39,6 +51,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
     const openFile = async (path) => {
         const target = await load(path);
         state.activePath = target.path;
+        await remember(target.path);
         return target;
     };
 
@@ -68,6 +81,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
     const get = new Map([
         ["/api/document", async (query) => snapshot(await load(query.get("path") ?? undefined))],
         ["/api/tree", (query) => workspace.list(query.get("dir") ?? undefined)],
+        ["/api/files", () => files()],
         ["/api/settings", () => settings.read()],
         ["/api/review", () => review()],
         ["/api/history", async (query) => {
@@ -97,6 +111,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
         ["/api/reload", revisionInput((target, input) => store.reload(target, input.revision, input.diskHash))],
         ["/api/open", documentInput(async (target) => {
             state.activePath = target.path;
+            await remember(target.path);
             return snapshot(target);
         })],
         ["/api/agent", selectionInput(async (target, input, prompt, attachments) =>
@@ -142,7 +157,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
     ]);
 
     return {
-        state, workspace, get, post, openFile,
+        state, workspace, get, post, openFile, initialized,
         get document() { return store.open(state.activePath); },
     };
 }
