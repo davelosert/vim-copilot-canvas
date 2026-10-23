@@ -18,6 +18,8 @@ Repository sessions discover `.github/extensions/vim-canvas-dev/extension.mjs`, 
 
 Install dependencies with `npm ci`. After frontend changes, click **Reload canvas** in the dev toolbar to rebuild assets from the current checkout and refresh the panel. The button preserves the current document draft before refreshing; rebuild failures appear in the canvas and leave the editor open for a retry. Reload extensions after backend or provider changes. Dev drafts and pending batches are stored separately per session; explicit file saves still update the files in the checkout.
 
+The rebuild launches `node` from the app's `PATH`, not the extension host executable (which can be Copilot rather than Node.js). If reload reports that Node.js is unavailable, install a supported Node.js version and restart the app with `node` on its `PATH`. Reloading the canvas does not reload backend modules; after backend changes, restart the extension host and reopen the dev canvas.
+
 ## Source layout and ownership
 
 ```text
