@@ -1837,11 +1837,23 @@ it("runs explorer file operations from keys, the inline prompt and the context m
         expect(menu.querySelector(`[data-action="${action}"]`).hidden).toBe(false);
     }
     await userEvent.keyboard("{Escape}");
+    row("/work/docs").click();
+    tree.focus();
+    tree.dispatchEvent(new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true }));
+    expect(menu.hidden).toBe(false);
+    menu.querySelector('[data-action="new-file"]').click();
+    await vi.waitFor(() => expect(input.value).toBe("docs/"));
+    input.value = "docs/keyboard.md";
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(row("/work/docs/keyboard.md")).not.toBeNull());
+
+    row("/work/notes/renamed.md").click();
     tree.focus();
     await userEvent.keyboard("x");
     expect(row("/work/notes/renamed.md").dataset.clipboard).toBe("cut");
-    row("/work/docs").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 }));
-    await vi.waitFor(() => expect(menu.hidden).toBe(false));
+    row("/work/docs").click();
+    tree.focus();
+    tree.dispatchEvent(new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true }));
     menu.querySelector('[data-action="paste"]').click();
     await vi.waitFor(() => expect(row("/work/docs/renamed.md")).not.toBeNull());
     expect(menu.hidden).toBe(true);
