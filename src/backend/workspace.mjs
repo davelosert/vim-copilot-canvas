@@ -8,7 +8,7 @@ import { diskText } from "./files.mjs";
 const MAX_ENTRIES = 2000;
 export const MAX_FILES = 50000;
 const FILES_TTL = 5000;
-// The fallback walker (no git) never descends into these.
+// File search excludes these in both Git listings and the fallback walker.
 const skipForFiles = new Set([".git", "node_modules"]);
 
 function git(cwd, args) {
@@ -155,7 +155,10 @@ export class Workspace {
         const pending = this.filesCache?.pending ?? (async () => {
             let files = await this.gitFiles().catch(() => null);
             if (files === null) files = await this.walkFiles();
-            files = files.filter((path) => !this.ignore.has(path.split("/")[0]));
+            files = files.filter((path) => {
+                const parts = path.split("/");
+                return !this.ignore.has(parts[0]) && !parts.some((part) => skipForFiles.has(part));
+            });
             const truncated = files.length > MAX_FILES;
             if (truncated) files = files.slice(0, MAX_FILES);
             files.sort((a, b) => a.localeCompare(b));
@@ -175,12 +178,16 @@ export class Workspace {
     invalidateFiles() { this.filesCache = null; }
 
     async gitFiles() {
-        const [listed, deleted] = await Promise.all([
-            git(this.root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]),
+        const [cached, untracked, deleted] = await Promise.all([
+            git(this.root, ["ls-files", "-z", "--cached", "--stage"]),
+            git(this.root, ["ls-files", "-z", "--others", "--exclude-standard"]),
             git(this.root, ["ls-files", "-z", "--deleted"]),
         ]);
         const removed = new Set(nulSplit(deleted));
-        return [...new Set(nulSplit(listed))].filter((path) => !removed.has(path));
+        const tracked = nulSplit(cached)
+            .filter((entry) => !entry.startsWith("160000 "))
+            .map((entry) => entry.slice(entry.indexOf("\t") + 1));
+        return [...new Set([...tracked, ...nulSplit(untracked)])].filter((path) => !removed.has(path));
     }
 
     async walkFiles() {
@@ -192,6 +199,7 @@ export class Workspace {
             try { items = await readdir(join(this.root, prefix), { withFileTypes: true }); }
             catch { continue; }
             for (const item of items) {
+                if (files.length > MAX_FILES) break;
                 if (!prefix && this.ignore.has(item.name)) continue;
                 if (skipForFiles.has(item.name)) continue;
                 const relativePath = prefix ? `${prefix}/${item.name}` : item.name;

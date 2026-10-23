@@ -131,6 +131,54 @@ test("file search lists git files, respects .gitignore and skips deleted and ign
     assert.deepEqual((await nested.files()).files, ["app.js"]);
 });
 
+test("Git file search excludes dependency directories even without ignore rules", async () => {
+    const root = await tempDir("vim-files-dependencies-");
+    await writeFiles(root, {
+        "README.md": "readme\n",
+        "node_modules/tracked.js": "tracked dependency\n",
+        "node_modules/untracked.js": "untracked dependency\n",
+        "packages/app/node_modules/pkg/index.js": "nested dependency\n",
+        "src/app.js": "source\n",
+    });
+    await run(root, "init", "-q");
+    await run(root, "add", "README.md", "node_modules/tracked.js");
+    const workspace = await Workspace.create({ rootPath: root });
+    assert.deepEqual((await workspace.files()).files, ["README.md", "src/app.js"]);
+});
+
+test("Git file search excludes submodule gitlinks", async () => {
+    const root = await tempDir("vim-files-submodules-");
+    await writeFiles(root, { "README.md": "readme\n", "vendor/module/README.md": "module\n" });
+    await run(root, "init", "-q");
+    const module = join(root, "vendor", "module");
+    await run(module, "init", "-q");
+    await run(module, "add", "README.md");
+    await run(module, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "Initial");
+    await run(root, "add", "README.md", "vendor/module");
+    const workspace = await Workspace.create({ rootPath: root });
+    assert.deepEqual((await workspace.files()).files, ["README.md"]);
+});
+
+test("fallback stops processing directory entries at the file budget", async () => {
+    const root = await tempDir("vim-files-budget-");
+    const workspace = await Workspace.create({ rootPath: root });
+    const fs = await import("node:fs/promises");
+    const processed = vi.fn(() => false);
+    const entries = Array.from({ length: MAX_FILES + 10 }, (_, index) => ({
+        name: `${index}.md`, isDirectory: processed, isFile: () => true,
+    }));
+    const listing = vi.spyOn(fs, "readdir").mockResolvedValue(entries);
+    try {
+        assert.equal((await workspace.walkFiles()).length, MAX_FILES + 1);
+        assert.equal(processed.mock.calls.length, MAX_FILES + 1);
+        const result = await workspace.files();
+        assert.equal(result.files.length, MAX_FILES);
+        assert.equal(result.truncated, true);
+    } finally {
+        listing.mockRestore();
+    }
+});
+
 test("file search falls back to a walker outside git and caches until invalidated", async () => {
     const root = await tempDir("vim-files-walk-");
     await writeFiles(root, {

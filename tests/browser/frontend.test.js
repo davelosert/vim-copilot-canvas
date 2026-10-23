@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { mountApp } from "../../src/frontend/app.js";
 import { createExplorer } from "../../src/frontend/explorer.js";
+import { createFinder } from "../../src/frontend/finder.js";
 import { renderMarkdown, wordCount } from "../../src/frontend/markdown.js";
 import "../../src/frontend/primer.css";
 
@@ -111,6 +112,36 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    it("preserves finder selection when a refresh cancels a pending input debounce", async () => {
+        document.body.innerHTML = new DOMParser().parseFromString(markup, "text/html").body.innerHTML;
+        const listing = {
+            root: "/work", separator: "/", recent: [], truncated: false,
+            files: ["a.md", "b.md", ...Array.from({ length: 4999 }, (_, index) => `${index}.txt`)],
+        };
+        const refresh = deferred();
+        const api = vi.fn().mockResolvedValueOnce(listing).mockReturnValueOnce(refresh.promise);
+        const onOpen = vi.fn();
+        const finder = createFinder({
+            elements: { dialog: $("finder"), input: $("finder-input"), list: $("finder-list"), status: $("finder-status") },
+            api, onOpen, onError: vi.fn(), window,
+        });
+        mounted.push(finder);
+        finder.open();
+        await expect.poll(() => $("finder-status").textContent).toBe("5001 files");
+        finder.close();
+        await new Promise((resolve) => $("finder").addEventListener("close", resolve, { once: true }));
+        finder.open();
+        $("finder-input").value = ".md";
+        $("finder-input").dispatchEvent(new Event("input", { bubbles: true }));
+        refresh.resolve(listing);
+        await Promise.resolve();
+        expect($("finder-list").children.length).toBe(2);
+        $("finder-input").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+        expect($("finder-input").getAttribute("aria-activedescendant")).toBe("finder-option-1");
+        $("finder-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        expect(onOpen).toHaveBeenCalledWith("/work/b.md");
+    });
+
     it("keeps editor focus when choosing the current file from the explorer finder", async () => {
         const { app } = await fixture();
         await showSidebar();

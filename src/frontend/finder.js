@@ -82,6 +82,7 @@ export function createFinder({ elements: { dialog, input, list, status }, api, o
     };
     const update = () => {
         clearTimeout(timer);
+        timer = undefined;
         results = listing ? rank(input.value, listing.files, { recent: listing.recent, limit: LIMIT }) : [];
         render();
     };
