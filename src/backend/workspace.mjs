@@ -1,5 +1,5 @@
-import { readdir, realpath, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { lstat, readdir, realpath, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { EditorError } from "./errors.mjs";
 import { diskText } from "./files.mjs";
@@ -79,6 +79,49 @@ export class Workspace {
         }
         if (!this.contains(real)) throw new EditorError("outside_root", "That path is outside the explorer root.", 403);
         return real;
+    }
+
+    /** Locate an existing entry without following a final symlink; the entry itself is the target. */
+    async entry(path) {
+        if (typeof path !== "string" || !path) throw new EditorError("invalid_path", "A path is required.", 400);
+        const absolute = resolve(this.root, path);
+        const protectedRoot = () => new EditorError("root_protected", "The explorer root cannot be changed.", 403);
+        if (absolute === this.root) throw protectedRoot();
+        const parent = await this.resolve(dirname(absolute));
+        const entry = join(parent, basename(absolute));
+        if (entry === this.root) throw protectedRoot();
+        let info;
+        try { info = await lstat(entry); }
+        catch (error) {
+            if (error.code === "ENOENT") throw new EditorError("not_found", `No such file or folder: ${path}`, 404);
+            throw error;
+        }
+        return { path: entry, type: info.isDirectory() ? "directory" : info.isSymbolicLink() ? "link" : "file" };
+    }
+
+    /** Resolve a not-yet-existing path below the root, canonicalizing its nearest existing ancestor. */
+    async target(path) {
+        if (typeof path !== "string" || !path.trim()) throw new EditorError("invalid_path", "A name is required.", 400);
+        const absolute = resolve(this.root, path);
+        const missing = [];
+        let ancestor = absolute;
+        for (;;) {
+            try {
+                ancestor = await realpath(ancestor);
+                break;
+            } catch (error) {
+                if ((error.code !== "ENOENT" && error.code !== "ENOTDIR") || dirname(ancestor) === ancestor) throw error;
+                missing.unshift(basename(ancestor));
+                ancestor = dirname(ancestor);
+            }
+        }
+        if (!missing.length) throw new EditorError("already_exists", `${relative(this.root, absolute) || basename(absolute)} already exists.`, 409);
+        const target = join(ancestor, ...missing);
+        if (!this.contains(ancestor) || !this.contains(target)) {
+            throw new EditorError("outside_root", "That path is outside the explorer root.", 403);
+        }
+        if (!(await stat(ancestor)).isDirectory()) throw new EditorError("not_a_directory", `${relative(this.root, ancestor)} is not a folder.`, 400);
+        return target;
     }
 
     async list(directory = this.root) {

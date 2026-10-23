@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, realpath, stat } from "node:fs/promises";
-import { basename, isAbsolute, join } from "node:path";
+import { mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
+import { basename, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EditorError } from "./errors.mjs";
 import { MAX_BYTES, atomicWrite, diskText, writeNew } from "./files.mjs";
@@ -16,6 +16,9 @@ export class DocumentStore {
         this.documents = new Map();
         this.locks = new Map();
         this.history = history;
+        this.moves = new Map();
+        this.deleted = new Set();
+        this.fileOperations = Promise.resolve();
     }
 
     async open(filePath) {
@@ -36,6 +39,9 @@ export class DocumentStore {
         }
         if (!isAbsolute(filePath)) throw new EditorError("absolute_path_required", "Provide an absolute file path.", 400);
         const path = await realpath(filePath);
+        // A file now exists here again, so it no longer redirects to a renamed or deleted document.
+        this.moves.delete(path);
+        this.deleted.delete(path);
         return this.locked({ path }, async () => {
             if (this.documents.has(path)) return this.documents.get(path);
             const baseContent = await diskText(path);
@@ -66,14 +72,76 @@ export class DocumentStore {
     }
 
     async locked(document, operation) {
-        const previous = this.locks.get(document.path) ?? Promise.resolve();
+        const key = document.path;
+        const previous = this.locks.get(key) ?? Promise.resolve();
         const result = previous.catch(() => {}).then(operation);
-        this.locks.set(document.path, result);
+        this.locks.set(key, result);
         try {
             return await result;
         } finally {
-            if (this.locks.get(document.path) === result) this.locks.delete(document.path);
+            if (this.locks.get(key) === result) this.locks.delete(key);
         }
+    }
+
+    /** Current path of a document that may have been renamed or moved through the explorer. */
+    successor(path) {
+        const seen = new Set();
+        while (this.moves.has(path) && !seen.has(path)) {
+            seen.add(path);
+            path = this.moves.get(path);
+        }
+        return path;
+    }
+
+    isDeleted(path) { return this.deleted.has(path); }
+
+    /**
+     * Run a file operation affecting `path` (a file or folder) while holding every
+     * affected open document's lock, so drafts cannot change underneath it.
+     */
+    async affecting(path, operation) {
+        const run = this.fileOperations.catch(() => {}).then(async () => {
+            const inside = (candidate) => candidate === path || candidate.startsWith(path.endsWith(sep) ? path : path + sep);
+            const documents = [...this.documents.values()].filter((document) => inside(document.path));
+            const hold = (index) => index === documents.length
+                ? operation(documents)
+                : this.locked(documents[index], () => hold(index + 1));
+            return hold(0);
+        });
+        this.fileOperations = run;
+        return run;
+    }
+
+    /** Move `from` to `to` with `rename`, carrying open documents and their drafts along. */
+    async relocate(from, to, rename) {
+        return this.affecting(from, async (documents) => {
+            await rename();
+            for (const document of documents) {
+                const previous = { path: document.path, draftPath: document.draftPath };
+                const path = to + document.path.slice(from.length);
+                Object.assign(document, { path, name: basename(path), draftPath: join(this.artifacts, "drafts", `${hash(path)}.json`) });
+                this.documents.delete(previous.path);
+                this.documents.set(path, document);
+                this.moves.set(previous.path, path);
+                this.moves.delete(path);
+                this.deleted.delete(path);
+                await this.persist(document);
+                await rm(previous.draftPath, { force: true });
+            }
+        });
+    }
+
+    /** Delete `path` with `remove`, discarding open documents and drafts below it. */
+    async remove(path, remove) {
+        return this.affecting(path, async (documents) => {
+            await remove();
+            for (const document of documents) {
+                this.documents.delete(document.path);
+                this.moves.delete(document.path);
+                this.deleted.add(document.path);
+                await rm(document.draftPath, { force: true });
+            }
+        });
     }
 
     async persist(document) {

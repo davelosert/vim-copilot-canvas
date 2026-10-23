@@ -27,6 +27,22 @@ Settings includes **Vim mode in Agent panel**, enabled by default and saved acro
 
 The file explorer provides Vim-tree-style navigation through workspace files.
 
+### File operations
+
+The explorer can create, rename, move, copy, and delete files and folders inside the explorer root. Use the nvim-tree-style keys, the **New file** / **New folder** toolbar buttons, the right-click menu (or the context-menu key), or drag an entry onto a folder (or empty tree space for the root).
+
+| Key | Action |
+| --- | --- |
+| `a` | Create a file in the selected folder; end the path with `/` to create a folder. Missing parent folders are created. |
+| `r` | Rename or move: edit the entry's root-relative path. |
+| `d` | Delete the entry, after confirmation. Folders are deleted recursively. |
+| `x` / `c` | Mark the entry to cut or copy; press again to clear the mark. |
+| `p` | Paste into the selected folder (or the selected file's folder). |
+
+Path prompts open inline below the tree; Enter confirms and Escape cancels. If a move or copy target already exists, the prompt asks for another name instead of overwriting.
+
+Open documents follow renames and moves in every panel, together with their unsaved drafts, undo history, and pending batch comments. Deleting the open file drops its pending batch comments and opens another document when one exists; panels that still show it report **File deleted** and keep its text visible until another file is opened. Renaming a file starts a separate history identity.
+
 Switch the sidebar to **Outline** to navigate the current Markdown document, including unsaved edits. ATX (`#`) and Setext (underlined) headings appear in document order; code blocks are excluded. Use `j` / `k`, arrows, `gg` / `G`, or Home / End to select a heading, then Enter / `l` / `o` to jump to it; Space jumps while keeping outline focus.
 
 Clicking a heading focuses its source line; preview-only mode opens the source alongside the preview. `Ctrl+w h` / `:Ex` focuses the selected sidebar tab's content, and Esc / `Ctrl+w l` returns to the editor.

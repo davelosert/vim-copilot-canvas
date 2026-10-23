@@ -508,3 +508,52 @@ test.skipIf(!process.env.VIM_CANVAS_SCREENSHOT_DIR)("welcome document screenshot
     await page.screenshot({ path: join(directory, "vim-markdown-narrow.png") });
     assert.deepEqual(errors, []);
 });
+
+test("file explorer operations: create, rename the open file with its draft, and delete it", async () => {
+    const { temporary, path, page, errors, keys, state } = await editorPage();
+    const rows = () => page.locator("#tree .tree-row");
+    const focused = () => page.evaluate(() => document.activeElement.id);
+    await until(async () => assert.equal(await rows().count(), 2));
+    await page.locator(".cm-content").click();
+    await keys("g", "g", "i");
+    await page.keyboard.type("Draft ");
+    await page.keyboard.press("Escape");
+    await until(async () => assert.match((await state()).content, /^Draft # Hello/));
+
+    await keys("Control+w", "h");
+    await until(async () => assert.equal(await focused(), "tree"));
+    await keys("r");
+    await until(async () => assert.equal(await focused(), "tree-prompt-input"));
+    assert.equal(await page.locator("#tree-prompt-input").inputValue(), "example.md");
+    await page.keyboard.type("renamed");
+    await page.keyboard.press("Enter");
+    const renamed = join(temporary, "renamed.md");
+    await until(async () => assert.equal(await page.locator("#filepath").innerText(), renamed));
+    await until(async () => assert.equal(await page.locator("#tree .tree-row.active .tree-label").innerText(), "renamed.md"));
+    assert.match(await page.locator(".cm-content").innerText(), /^Draft # Hello/);
+    await assert.rejects(readFile(path, "utf8"), { code: "ENOENT" });
+    await page.locator(".cm-content").click();
+    await keys("u");
+    await until(async () => assert.match(await readFile(renamed, "utf8"), /^# Hello/));
+    assert.equal(await page.locator("#filepath").innerText(), renamed);
+
+    await keys("Control+w", "h");
+    await until(async () => assert.equal(await focused(), "tree"));
+    await keys("a");
+    await until(async () => assert.equal(await focused(), "tree-prompt-input"));
+    await page.keyboard.type("notes/created.md");
+    await page.keyboard.press("Enter");
+    const created = join(temporary, "notes", "created.md");
+    await until(async () => assert.equal(await page.locator("#filepath").innerText(), created));
+    assert.equal(await readFile(created, "utf8"), "");
+
+    await page.locator('#tree .tree-row:has-text("renamed.md")').click();
+    await until(async () => assert.equal(await page.locator("#filepath").innerText(), renamed));
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator('#tree .tree-row:has-text("renamed.md")').click({ button: "right" });
+    await page.locator('#tree-menu [data-action="delete"]').click();
+    await until(async () => assert.notEqual(await page.locator("#filepath").innerText(), renamed));
+    await assert.rejects(readFile(renamed, "utf8"), { code: "ENOENT" });
+    assert.equal(await rows().filter({ hasText: "renamed.md" }).count(), 0);
+    assert.deepEqual(errors, []);
+});

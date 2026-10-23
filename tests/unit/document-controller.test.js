@@ -306,3 +306,59 @@ describe("document ownership and serialized persistence", () => {
         expect(f.documents).toHaveLength(1);
     });
 });
+
+describe("explorer renames and deletions", () => {
+    const setup = (api) => {
+        let text = "initial";
+        const onDocument = vi.fn((value) => { text = value.content; });
+        const onRelocate = vi.fn();
+        const controller = createDocumentController({ api, readText: () => text, onState: vi.fn(), onDocument, onRelocate });
+        controller.initialize(snapshot());
+        onDocument.mockClear();
+        return { controller, onDocument, onRelocate, edit(value) { text = value; controller.edited(); } };
+    };
+
+    it("adopts a renamed path on poll without reloading the editor text", async () => {
+        const moved = snapshot({ path: "/work/docs/b.md", name: "b.md", activePath: "/work/docs/b.md" });
+        const api = { document: vi.fn(async () => moved), open: vi.fn() };
+        const f = setup(api);
+        await f.controller.poll();
+        expect(f.onRelocate).toHaveBeenCalledWith(expect.objectContaining({ path: "/work/docs/b.md", name: "b.md" }));
+        expect(f.onDocument).not.toHaveBeenCalled();
+        expect(api.open).not.toHaveBeenCalled();
+        expect(f.controller.getState().current.path).toBe("/work/docs/b.md");
+        f.controller.dispose();
+    });
+
+    it("stops autosave and polling for a deleted file until another file opens", async () => {
+        vi.useFakeTimers();
+        const api = {
+            document: vi.fn(async () => { throw Object.assign(new Error("gone"), { code: "file_deleted" }); }),
+            draft: vi.fn(), save: vi.fn(),
+            open: vi.fn(async ({ path }) => snapshot({ path, name: "c.md", content: "other" })),
+        };
+        const f = setup(api);
+        await expect(f.controller.poll()).rejects.toMatchObject({ code: "file_deleted" });
+        expect(f.controller.getState()).toMatchObject({ deleted: true, status: "File deleted" });
+        f.edit("typed after deletion");
+        await vi.advanceTimersByTimeAsync(500);
+        await f.controller.poll();
+        expect(api.document).toHaveBeenCalledTimes(1);
+        expect(api.draft).not.toHaveBeenCalled();
+        await f.controller.open("/work/c.md");
+        expect(api.draft).not.toHaveBeenCalled();
+        expect(f.controller.getState()).toMatchObject({ deleted: false, current: { path: "/work/c.md" } });
+        f.controller.dispose();
+    });
+
+    it("can be marked deleted by the panel that removed the file", async () => {
+        const api = { document: vi.fn(), draft: vi.fn(), save: vi.fn() };
+        const f = setup(api);
+        await f.controller.markDeleted();
+        f.edit("kept locally");
+        await f.controller.poll();
+        expect(api.document).not.toHaveBeenCalled();
+        expect(f.controller.getState().status).toBe("File deleted");
+        f.controller.dispose();
+    });
+});

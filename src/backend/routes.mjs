@@ -1,4 +1,6 @@
+import { basename, isAbsolute, sep } from "node:path";
 import { EditorError } from "./errors.mjs";
+import { createFileOperations } from "./file-operations.mjs";
 import { composeReview, summarize } from "./review-store.mjs";
 import { buildAttachments, createDelivery, validPrompt, requestContext } from "./agent-delivery.mjs";
 import { readImage } from "./images.mjs";
@@ -34,8 +36,21 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
         return messageId;
     };
     const review = async () => ({ items: summarize(await reviews.list(workspace.root)) });
-    const load = async (path) => store.open(await workspace.resolve(path ?? state.activePath));
-    const snapshot = async (doc) => ({ ...(await store.snapshot(doc)), activePath: state.activePath });
+    const files = createFileOperations({ store, workspace, reviews });
+    const activePath = () => (state.activePath = store.successor(state.activePath));
+    const load = async (path) => {
+        const requested = path ?? activePath();
+        try {
+            return await store.open(await workspace.resolve(requested));
+        } catch (error) {
+            if (error.code !== "not_found" || !isAbsolute(requested)) throw error;
+            const moved = store.successor(requested);
+            if (moved !== requested) return load(moved);
+            if (store.isDeleted(requested)) throw new EditorError("file_deleted", `${basename(requested)} was deleted. Its text remains in this editor until you open another file.`, 410);
+            throw error;
+        }
+    };
+    const snapshot = async (doc) => ({ ...(await store.snapshot(doc)), activePath: activePath() });
     const openFile = async (path) => {
         const target = await load(path);
         state.activePath = target.path;
@@ -58,7 +73,7 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
         if (typeof input.revision !== "string") {
             throw new EditorError("invalid_input", "A document revision is required.", 400);
         }
-        return { ...(await operation(target, input)), activePath: state.activePath };
+        return { ...(await operation(target, input)), activePath: activePath() };
     });
     const selectionInput = (handler) => documentInput((target, input) => {
         const prompt = validPrompt(input.prompt);
@@ -135,6 +150,18 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
             await reviews.remove(workspace.root, items.map((item) => item.id));
             return { messageId, ...(await review()) };
         })],
+        ["/api/files/create", objectInput((input) => files.create(input.path, input.type))],
+        ["/api/files/move", objectInput((input) => files.move(input.from, input.to))],
+        ["/api/files/copy", objectInput((input) => files.copy(input.from, input.to))],
+        ["/api/files/delete", objectInput(async (input) => {
+            const result = await files.delete(input.path);
+            const current = activePath();
+            if (current !== result.path && !current.startsWith(`${result.path}${sep}`)) return result;
+            let fallback = null;
+            try { fallback = await workspace.firstDocument(); }
+            catch (error) { if (error.code !== "no_documents") throw error; }
+            return { ...result, fallback };
+        })],
         ["/api/review/clear", objectInput(async () => {
             await reviews.update(workspace.root, () => []);
             return review();
@@ -143,6 +170,6 @@ export function createRoutes({ store, workspace, document, reviews, settings, se
 
     return {
         state, workspace, get, post, openFile,
-        get document() { return store.open(state.activePath); },
+        get document() { return load(); },
     };
 }

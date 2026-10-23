@@ -82,7 +82,7 @@ export function createShell({ elements: e, window, editor, readText, onReload, o
             if (disposed || !state.current) return;
             const { current, blocked, saveFailed } = state;
             if (e.filename.textContent !== current.name) e.filename.textContent = current.name;
-            const saveError = blocked ? "Draft conflict" : current.conflict ? "Disk conflict" : saveFailed ? "Not saved" : "";
+            const saveError = state.deleted ? "File deleted" : blocked ? "Draft conflict" : current.conflict ? "Disk conflict" : saveFailed ? "Not saved" : "";
             if (e.saveStatus.textContent !== saveError) e.saveStatus.textContent = saveError;
             e.saveStatus.hidden = !saveError;
             e.conflict.hidden = !current.conflict && !blocked;

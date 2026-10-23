@@ -28,6 +28,8 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
         const line = view.state.doc.lineAt(position);
         onCursor?.({ line: line.number, column: [...view.state.sliceDoc(line.from, position)].length + 1 });
     };
+    const baseLanguage = (name) => isMarkdown(name)
+        ? [markdown({ base: markdownLanguage, codeLanguages: languages }), markdownLinks()] : [];
     function state(snapshot) {
         return EditorState.create({
             doc: snapshot.content,
@@ -39,8 +41,7 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
                         transaction.newDoc.lineAt(transaction.newSelection.main.head).number) return null;
                     return { effects: numbering.reconfigure(lineNumberStyle()) };
                 }),
-                language.of(isMarkdown(snapshot.name)
-                    ? [markdown({ base: markdownLanguage, codeLanguages: languages }), markdownLinks()] : []),
+                language.of(baseLanguage(snapshot.name)),
                 EditorView.lineWrapping, extensions,
                 lineBreaks.of(EditorState.lineSeparator.of(snapshot.content.includes("\r\n") ? "\r\n" : "\n")),
                 theme.of(currentTheme()), editable.of([EditorView.editable.of(isEditable), EditorState.readOnly.of(!isEditable)]),
@@ -114,6 +115,11 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
             } finally { applying = false; }
             configureLanguage(snapshot);
             cursor();
+        },
+        rename(snapshot) {
+            if (!view || disposed) return;
+            view.dispatch({ effects: language.reconfigure(baseLanguage(snapshot.name)) });
+            configureLanguage(snapshot);
         },
         applySettings(value) {
             const relativeChanged = settings.relativeLineNumbers !== value.relativeLineNumbers;

@@ -1521,3 +1521,107 @@ it("scopes explorer rows to its supplied root and stops late loads after disposa
     await loading;
     expect(second.querySelector(".tree-row").dataset.path).toBe("/work/b.md");
 });
+
+it("runs explorer file operations from keys, the inline prompt and the context menu", async () => {
+    const files = new Map([["/work/a.md", "file"], ["/work/docs", "directory"], ["/work/docs/b.md", "file"]]);
+    const calls = [];
+    const parent = (path) => path.slice(0, path.lastIndexOf("/"));
+    const absolute = (path) => path.startsWith("/") ? path : `/work/${path}`;
+    const add = (path, type) => {
+        for (let dir = parent(path); dir !== "/work"; dir = parent(dir)) files.set(dir, "directory");
+        files.set(path, type);
+    };
+    const api = vi.fn(async (path, body) => {
+        if (path.startsWith("tree")) {
+            const dir = new URLSearchParams(path.split("?")[1] ?? "").get("dir") ?? "/work";
+            const entries = [...files].filter(([key]) => parent(key) === dir).map(([key, type]) => ({ path: key, name: key.split("/").pop(), type }));
+            return { root: "/work", rootName: "work", entries };
+        }
+        calls.push([path, body]);
+        if (path === "files/create") { add(absolute(body.path), body.type); return { path: absolute(body.path), type: body.type }; }
+        if (path === "files/move" || path === "files/copy") {
+            const from = absolute(body.from), to = absolute(body.to);
+            if (files.has(to)) throw Object.assign(new Error("exists"), { code: "already_exists" });
+            for (const [key, type] of [...files]) {
+                if (key !== from && !key.startsWith(`${from}/`)) continue;
+                if (path === "files/move") files.delete(key);
+                add(to + key.slice(from.length), type);
+            }
+            return { from, path: to, type: "file" };
+        }
+        if (path === "files/delete") { files.delete(absolute(body.path)); return { path: absolute(body.path), type: "file", fallback: null }; }
+        throw new Error(`Unexpected ${path}`);
+    });
+    document.body.insertAdjacentHTML("beforeend", `<div id="op-tree" tabindex="0"></div>
+        <form id="op-prompt" hidden><label id="op-label"></label><input id="op-input"></form>
+        <div id="op-menu" hidden>${["new-file", "new-folder", "rename", "cut", "copy", "paste", "delete"].map((action) => `<button type="button" data-action="${action}">${action}</button>`).join("")}</div>`);
+    const tree = document.getElementById("op-tree"), input = document.getElementById("op-input");
+    const onChange = vi.fn(), confirm = vi.fn(() => true), onError = vi.fn();
+    const explorer = createExplorer({
+        tree, api, onOpen: vi.fn(), onLeave: vi.fn(), onHide: vi.fn(), onError, onChange, confirm,
+        prompt: { form: document.getElementById("op-prompt"), label: document.getElementById("op-label"), input },
+        menu: document.getElementById("op-menu"),
+    });
+    mounted.push(explorer);
+    await explorer.init("/work/a.md");
+    const row = (path) => tree.querySelector(`.tree-row[data-path="${path}"]`);
+    const settled = () => vi.waitFor(() => expect(document.getElementById("op-prompt").hidden).toBe(true));
+
+    tree.focus();
+    await userEvent.keyboard("a");
+    await vi.waitFor(() => expect(document.activeElement).toBe(input));
+    expect(input.value).toBe("");
+    await userEvent.keyboard("notes/new.md{Enter}");
+    await vi.waitFor(() => expect(row("/work/notes/new.md")).not.toBeNull());
+    expect(calls.at(-1)).toEqual(["files/create", { path: "notes/new.md", type: "file" }]);
+    expect(onChange).toHaveBeenLastCalledWith({ action: "create", path: "/work/notes/new.md", type: "file" });
+    expect(row("/work/notes/new.md").getAttribute("aria-selected")).toBe("true");
+
+    tree.focus();
+    await userEvent.keyboard("r");
+    await vi.waitFor(() => expect(input.value).toBe("notes/new.md"));
+    expect(input.value.slice(input.selectionStart, input.selectionEnd)).toBe("new");
+    await userEvent.keyboard("renamed{Enter}");
+    await vi.waitFor(() => expect(row("/work/notes/renamed.md")).not.toBeNull());
+    expect(row("/work/notes/new.md")).toBeNull();
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ action: "move", from: "/work/notes/new.md", path: "/work/notes/renamed.md" }));
+
+    tree.focus();
+    await userEvent.keyboard("r");
+    await vi.waitFor(() => expect(document.activeElement).toBe(input));
+    await userEvent.keyboard("{Escape}");
+    await settled();
+    expect(document.activeElement).toBe(tree);
+
+    tree.focus();
+    await userEvent.keyboard("x");
+    expect(row("/work/notes/renamed.md").dataset.clipboard).toBe("cut");
+    row("/work/docs").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 }));
+    const menu = document.getElementById("op-menu");
+    await vi.waitFor(() => expect(menu.hidden).toBe(false));
+    menu.querySelector('[data-action="paste"]').click();
+    await vi.waitFor(() => expect(row("/work/docs/renamed.md")).not.toBeNull());
+    expect(menu.hidden).toBe(true);
+    expect(calls.at(-1)).toEqual(["files/move", { from: "/work/notes/renamed.md", to: "docs/renamed.md" }]);
+    expect(tree.querySelector("[data-clipboard]")).toBeNull();
+
+    row("/work/a.md").click();
+    tree.focus();
+    await userEvent.keyboard("c");
+    expect(row("/work/a.md").dataset.clipboard).toBe("copy");
+    await userEvent.keyboard("p");
+    await vi.waitFor(() => expect(input.value).toBe("a.md"));
+    expect(api).toHaveBeenCalledWith("files/copy", { from: "/work/a.md", to: "a.md" });
+    input.value = "docs/a-copy.md";
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(row("/work/docs/a-copy.md")).not.toBeNull());
+    expect(files.has("/work/a.md")).toBe(true);
+
+    tree.focus();
+    await userEvent.keyboard("d");
+    expect(confirm).toHaveBeenCalledWith("Delete docs/a-copy.md? This cannot be undone.");
+    await vi.waitFor(() => expect(row("/work/docs/a-copy.md")).toBeNull());
+    expect(onChange).toHaveBeenLastCalledWith({ action: "delete", path: "/work/docs/a-copy.md", type: "file", fallback: null });
+    expect(onError).not.toHaveBeenCalled();
+    for (const id of ["op-tree", "op-prompt", "op-menu"]) document.getElementById(id).remove();
+});

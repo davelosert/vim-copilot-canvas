@@ -88,6 +88,24 @@ button.mini:hover { color: var(--editor-text); }
 .outline-level { flex: 0 0 22px; color: var(--editor-muted); font: 10px var(--font-mono, monospace); }
 .tree-empty { padding: 12px 16px; color: var(--editor-muted); font-size: 12px; }
 .tree-row.active .tree-icon.markdown-icon, .tree-row.active .tree-icon.file-icon { color: var(--editor-accent); }
+button.mini svg { display: block; }
+.tree-row[data-clipboard="cut"] :is(.tree-label, .tree-icon) { opacity: .55; }
+.tree-badge { margin-left: auto; padding: 0 5px; border: 1px solid var(--editor-border); border-radius: 8px; color: var(--editor-muted); font-size: 10px; line-height: 14px; text-transform: uppercase; }
+.tree-row.drop-target, #tree.drop-root { outline: 1px dashed var(--editor-accent); outline-offset: -1px; background: color-mix(in srgb, var(--editor-accent) 10%, transparent); }
+.tree-prompt { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-top: 1px solid var(--editor-border); font-size: 11px; color: var(--editor-muted); }
+.tree-prompt[hidden] { display: none; }
+.tree-prompt input { width: 100%; padding: 4px 6px; border: 1px solid var(--editor-accent); border-radius: 4px; background: var(--editor-canvas); color: var(--editor-text); font: 12px var(--font-mono, monospace); outline: none; }
+.tree-prompt-hint { font-size: 10px; }
+.tree-prompt-hint kbd { border: 1px solid var(--editor-border); border-radius: 3px; padding: 0 3px; font-size: 9px; }
+.tree-menu { position: fixed; z-index: 50; min-width: 180px; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--editor-border); border-radius: 6px; background: var(--editor-canvas); box-shadow: 0 8px 24px rgb(0 0 0 / 20%); }
+.tree-menu[hidden] { display: none; }
+.tree-menu button { display: flex; justify-content: space-between; gap: 16px; border: 0; border-radius: 4px; background: transparent; padding: 5px 8px; color: var(--editor-text); font-size: 12px; text-align: left; }
+.tree-menu button[hidden] { display: none; }
+.tree-menu button:is(:hover, :focus):not(:disabled) { background: var(--editor-selection); outline: none; }
+.tree-menu button:disabled { color: var(--editor-muted); opacity: .6; }
+.tree-menu button.danger { color: var(--editor-danger); }
+.tree-menu kbd { color: var(--editor-muted); font-size: 10px; }
+:root[data-show-keyboard-shortcut-indicators="false"] :is(.tree-menu kbd, .tree-prompt-hint kbd) { display: none; }
 .explorer-hint { padding: 8px 12px; border-top: 1px solid var(--editor-border); color: var(--editor-muted); font-size: 10px; display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
 .explorer-hint kbd { border: 1px solid var(--editor-border); border-radius: 3px; padding: 0 3px; font-size: 9px; background: var(--editor-surface); }
 #resize-explorer { cursor: col-resize; border-right: 1px solid var(--editor-border); background: var(--editor-soft); touch-action: none; }
