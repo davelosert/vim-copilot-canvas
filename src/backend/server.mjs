@@ -20,6 +20,11 @@ const ASSETS = new Map([
     ["/editor.js", ["assets/editor.js", "text/javascript; charset=utf-8"]],
     ["/editor.css", ["public/editor.css", "text/css; charset=utf-8"]],
     ["/primer.css", ["assets/editor.css", "text/css; charset=utf-8"]],
+    ["/fonts/monaspace-neon-variable.woff2", ["public/fonts/monaspace-neon-variable.woff2", "font/woff2"]],
+    ["/fonts/monaspace-argon-variable.woff2", ["public/fonts/monaspace-argon-variable.woff2", "font/woff2"]],
+    ["/fonts/monaspace-krypton-variable.woff2", ["public/fonts/monaspace-krypton-variable.woff2", "font/woff2"]],
+    ["/fonts/monaspace-radon-variable.woff2", ["public/fonts/monaspace-radon-variable.woff2", "font/woff2"]],
+    ["/fonts/monaspace-xenon-variable.woff2", ["public/fonts/monaspace-xenon-variable.woff2", "font/woff2"]],
 ]);
 
 function assetFor(pathname) {

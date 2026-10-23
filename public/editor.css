@@ -1,5 +1,6 @@
 :root {
   color-scheme: light;
+  --font-mono: "Monaspace Neon", "SFMono-Regular", Consolas, monospace;
   --editor-accent: #0550ae;
   --editor-accent-contrast: #fff;
   --editor-surface: #f6f8fa;
@@ -17,6 +18,41 @@
   --tree-folder-color: #0550ae;
   --tree-markdown-color: #8250df;
   --color-focus-outline: var(--editor-accent);
+}
+@font-face {
+  font-family: "Monaspace Neon";
+  src: url("/fonts/monaspace-neon-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Monaspace Argon";
+  src: url("/fonts/monaspace-argon-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Monaspace Krypton";
+  src: url("/fonts/monaspace-krypton-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Monaspace Radon";
+  src: url("/fonts/monaspace-radon-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Monaspace Xenon";
+  src: url("/fonts/monaspace-xenon-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
 }
 :root[data-canvas-theme="dark"] {
   color-scheme: dark;
@@ -103,7 +139,7 @@ button.mini:hover { color: var(--editor-text); }
 #editor { flex: 1; min-height: 0; overflow: hidden; }
 .cm-editor { height: 100%; font-size: 13px; }
 .cm-editor.cm-focused { outline: none; }
-.cm-scroller { overflow: auto; font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); line-height: 1.75; }
+#editor > .cm-editor > .cm-scroller, #history-review-diff .cm-scroller { overflow: auto; font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); line-height: 1.75; }
 .cm-content { padding: 20px 0 80px; }
 .cm-line { padding-left: 14px; padding-right: 20px; }
 .cm-gutters { padding-left: 6px; }

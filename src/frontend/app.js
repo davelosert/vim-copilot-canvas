@@ -13,6 +13,7 @@ import { createShell } from "./shell.js";
 import { createScrollSync } from "./scroll-sync.js";
 import { isMarkdown } from "./markdown.js";
 import { createHistory } from "./history.js";
+import { defaultEditorFont, editorFonts } from "../shared/fonts.js";
 
 /** Compose one panel. The synchronous handle permits disposal even during startup. */
 export function mountApp({ root = document, window: win = root.ownerDocument?.defaultView ?? root.defaultView,
@@ -250,10 +251,13 @@ export function mountApp({ root = document, window: win = root.ownerDocument?.de
     }
     const preferences = createSettings({
         elements: elements({ dialog: "settings", button: "settings-button", close: "close-settings", relative: "relative-line-numbers",
-            shortcuts: "show-keyboard-shortcut-indicators", theme: "editor-theme", status: "settings-status",
+            shortcuts: "show-keyboard-shortcut-indicators", theme: "editor-theme", font: "editor-font", status: "settings-status",
             save: "save-settings", discard: "discard-settings", agentVim: "agent-vim-mode" }),
         api, onSettings: (value, previous) => {
             editor.applySettings(value);
+            if (!previous || value.font !== previous.font) {
+                doc.documentElement.style.setProperty("--font-mono", editorFonts[value.font ?? defaultEditorFont].family);
+            }
             if (!previous || value.agentVimMode !== previous.agentVimMode) agent.applySettings(value);
             if (!previous || value.showKeyboardShortcutIndicators !== previous.showKeyboardShortcutIndicators) {
                 doc.documentElement.dataset.showKeyboardShortcutIndicators = String(value.showKeyboardShortcutIndicators ?? true);

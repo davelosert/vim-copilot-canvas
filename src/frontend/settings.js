@@ -1,12 +1,13 @@
 import { themeOptions } from "../shared/themes.js";
+import { fontOptions } from "../shared/fonts.js";
 
 export function createSettings({ elements: e, api, onSettings }) {
     const handlers = new AbortController();
     let disposed = false, saving = false, generation = 0;
     let settings, persisted;
-    const keys = ["relativeLineNumbers", "showKeyboardShortcutIndicators", "agentVimMode", "theme"];
+    const keys = ["relativeLineNumbers", "showKeyboardShortcutIndicators", "agentVimMode", "theme", "font"];
     const listen = (element, type, fn) => element.addEventListener(type, fn, { signal: handlers.signal });
-    const controls = [e.relative, e.shortcuts, e.agentVim, e.theme];
+    const controls = [e.relative, e.shortcuts, e.agentVim, e.theme, e.font];
     for (const control of controls) control.disabled = true;
     const difference = (base, value) => Object.fromEntries(keys.filter((key) => base[key] !== value[key]).map((key) => [key, value[key]]));
     function updateActions() {
@@ -20,6 +21,10 @@ export function createSettings({ elements: e, api, onSettings }) {
         const option = e.theme.ownerDocument.createElement("option");
         option.value = value; option.textContent = label; return option;
     }));
+    e.font.replaceChildren(...fontOptions.map(({ value, label }) => {
+        const option = e.font.ownerDocument.createElement("option");
+        option.value = value; option.textContent = label; return option;
+    }));
     function render(value) {
         if (disposed) return;
         const previous = settings;
@@ -28,6 +33,7 @@ export function createSettings({ elements: e, api, onSettings }) {
         e.shortcuts.checked = value.showKeyboardShortcutIndicators ?? true;
         e.agentVim.checked = value.agentVimMode ?? true;
         e.theme.value = value.theme;
+        e.font.value = value.font;
         for (const control of controls) control.disabled = false;
         updateActions();
         if (!previous || keys.some((key) => value[key] !== previous[key])) onSettings(settings, previous);
@@ -95,6 +101,7 @@ export function createSettings({ elements: e, api, onSettings }) {
     listen(e.shortcuts, "change", () => preview({ showKeyboardShortcutIndicators: e.shortcuts.checked }));
     listen(e.agentVim, "change", () => preview({ agentVimMode: e.agentVim.checked }));
     listen(e.theme, "change", () => preview({ theme: e.theme.value }));
+    listen(e.font, "change", () => preview({ font: e.font.value }));
     listen(e.save, "click", save);
     listen(e.discard, "click", discard);
     listen(e.close, "click", close);

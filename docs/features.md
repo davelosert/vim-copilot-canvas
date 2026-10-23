@@ -71,6 +71,8 @@ Same-file external updates map the cursor and source viewport through the diff i
 
 Settings apply immediately as an in-memory preview; only **Save** writes changed preferences to disk. **Discard**, closing the dialog, and Escape restore the last saved preferences without writing.
 
+The editor defaults to the bundled Monaspace Neon variable font. **Editor font** offers the other Monaspace families—Argon, Krypton, Radon, and Xenon—or the system monospace stack; the selection applies to the source editor and other monospaced interface text.
+
 While a save is in flight, duplicate saves and dismissal are blocked; further previews remain editable but require another explicit Save. Failed saves keep the preview and display an error so it can be retried or discarded. Opening the dialog refreshes persisted preferences without letting a stale read overwrite newer local edits.
 
 Only changed editor compartments are reconfigured; changing shortcut visibility does not rebuild themes or line numbers. The backend uses atomic JSON writes so preferences survive restarts without partially written files.
