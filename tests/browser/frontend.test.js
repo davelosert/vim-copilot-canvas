@@ -1083,6 +1083,9 @@ describe("mounted frontend with real CodeMirror", () => {
         await expect.poll(() => document.querySelectorAll(".agent-prompt").length).toBe(1);
         const prompt = document.querySelector(".agent-prompt");
         const inner = prompt.querySelector(".agent-input .cm-editor");
+        const promptScroller = inner.querySelector(".cm-scroller");
+        expect(getComputedStyle(promptScroller).lineHeight).toBe("19.5px");
+        expect(getComputedStyle(promptScroller).fontFamily).not.toBe(getComputedStyle(document.querySelector("#editor .cm-scroller")).fontFamily);
         await expect.poll(() => inner.classList.contains("cm-focused")).toBe(true);
         // The outer editor is in Normal mode; its Vim styles must not hide the prompt's insert caret.
         expect(document.querySelector("#editor .cm-scroller").classList.contains("cm-vimMode")).toBe(true);

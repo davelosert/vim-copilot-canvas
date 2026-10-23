@@ -139,7 +139,7 @@ button.mini:hover { color: var(--editor-text); }
 #editor { flex: 1; min-height: 0; overflow: hidden; }
 .cm-editor { height: 100%; font-size: 13px; }
 .cm-editor.cm-focused { outline: none; }
-#editor .cm-scroller, #history-review-diff .cm-scroller { overflow: auto; font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); line-height: 1.75; }
+#editor > .cm-editor > .cm-scroller, #history-review-diff .cm-scroller { overflow: auto; font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); line-height: 1.75; }
 .cm-content { padding: 20px 0 80px; }
 .cm-line { padding-left: 14px; padding-right: 20px; }
 .cm-gutters { padding-left: 6px; }
