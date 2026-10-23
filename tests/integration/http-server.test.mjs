@@ -55,6 +55,10 @@ test("HTTP endpoints require token and same origin; assets are local", async () 
     assert.equal(primer.status, 200);
     assert.match(primer.headers.get("content-type"), /^text\/css/);
     assert.match(await primer.text(), /\.btn-primary/);
+    const monaspace = await fetch(new URL("/fonts/monaspace-neon-variable.woff2", url));
+    assert.equal(monaspace.status, 200);
+    assert.equal(monaspace.headers.get("content-type"), "font/woff2");
+    assert.ok((await monaspace.arrayBuffer()).byteLength > 500_000);
     assert.doesNotMatch(await (await fetch(new URL("/", url))).text(), /id="dev-reload-button"/);
     assert.equal((await apiClient(entry).call("dev/reload", {})).status, 404);
     const invalid = await fetch(new URL("/api/draft", url), {

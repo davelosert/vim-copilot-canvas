@@ -95,6 +95,8 @@ test("settings dialog exposes its controls and fits narrow viewports", async () 
     assert.equal(await page.getByRole("checkbox", { name: "Relative line numbers", exact: true }).isVisible(), true);
     assert.equal(await page.getByLabel("Editor theme").inputValue(), "system");
     assert.equal(await page.locator("#editor-theme option").count(), 15);
+    assert.equal(await page.getByLabel("Editor font").inputValue(), "neon");
+    assert.equal(await page.locator("#editor-font option").count(), 6);
     assert.equal(await page.locator("#settings-title").evaluate((element) => getComputedStyle(element).fontSize), "16px");
     assert.equal(await page.locator('#close-settings svg[aria-hidden="true"]').isVisible(), true);
     await page.keyboard.press("Escape");
@@ -107,7 +109,26 @@ test("settings dialog exposes its controls and fits narrow viewports", async () 
     await page.setViewportSize({ width: 320, height: 568 });
     assert.equal(await page.locator("#settings").evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth), true);
     assert.equal(await page.getByLabel("Editor theme").isVisible(), true);
+    assert.equal(await page.getByLabel("Editor font").isVisible(), true);
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
+    assert.deepEqual(errors, []);
+});
+
+test("Monaspace font previews and persists", async () => {
+    const { page, errors, settingsFile } = await settingsPage();
+    const editorFont = page.locator(".cm-scroller");
+    await until(async () => assert.match(await editorFont.evaluate((element) => getComputedStyle(element).fontFamily), /^"Monaspace Neon"/));
+    assert.equal(await page.locator("#editor-font").inputValue(), "neon");
+    await page.locator("#settings-button").click();
+    await until(async () => assert.equal(await page.locator("#editor-font").isEnabled(), true));
+    await page.locator("#editor-font").selectOption("krypton");
+    assert.match(await editorFont.evaluate((element) => getComputedStyle(element).fontFamily), /^"Monaspace Krypton"/);
+    assert.equal(await page.locator("#settings-status").textContent(), "Unsaved changes.");
+    await page.locator("#save-settings").click();
+    await until(async () => assert.equal(await page.locator("#settings-status").textContent(), "Settings saved."));
+    assert.equal(JSON.parse(await readFile(settingsFile, "utf8")).font, "krypton");
+    assert.equal(await page.locator("#editor-font").inputValue(), "krypton");
+    assert.equal(await page.evaluate(async () => (await document.fonts.load('13px "Monaspace Krypton"')).length), 1);
     assert.deepEqual(errors, []);
 });
 
