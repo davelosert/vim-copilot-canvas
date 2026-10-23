@@ -272,3 +272,12 @@ test("recent store caps its list and ignores corrupt or foreign files", async ({
     await writeFile(recents.file("/root"), "{not json");
     expect(await recents.list("/root")).toEqual([]);
 });
+
+test("concurrent panels preserve each other's recent files", async ({ onTestFinished }) => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), "vim-recent-panels-")));
+    onTestFinished(() => rm(base, { recursive: true, force: true }));
+    const first = new RecentStore(join(base, "recent"));
+    const second = new RecentStore(join(base, "recent"));
+    await Promise.all([first.add("/root", "/root/a.md"), second.add("/root", "/root/b.md")]);
+    expect(await first.list("/root")).toEqual(["/root/b.md", "/root/a.md"]);
+});

@@ -37,8 +37,17 @@ export function match(rawQuery, path) {
     if (!query) return { score: 0, positions: [] };
     const sensitive = query !== query.toLowerCase();
     const haystack = sensitive ? path : path.toLowerCase();
+    let originalIndices;
+    if (haystack.length !== path.length) {
+        originalIndices = [];
+        let offset = 0;
+        for (const character of path) {
+            for (let i = 0; i < character.toLowerCase().length; i++) originalIndices.push(offset + Math.min(i, character.length - 1));
+            offset += character.length;
+        }
+    }
     const m = query.length;
-    const n = path.length;
+    const n = haystack.length;
     // Cheap subsequence check before the quadratic pass; it also bounds the columns to score.
     let start = -1;
     for (let i = 0, j = 0; i < m; i++, j++) {
@@ -47,7 +56,7 @@ export function match(rawQuery, path) {
         if (i === 0) start = j;
     }
     const last = haystack.lastIndexOf(query[m - 1]) + 1;
-    const base = path.lastIndexOf("/") + 1;
+    const base = haystack.lastIndexOf("/") + 1;
     const from = buffer("from", Int32Array, m * n);
     let previous = buffer("previous", Float64Array, n).fill(-Infinity, 0, n);
     let current = buffer("current", Float64Array, n);
@@ -63,7 +72,7 @@ export function match(rawQuery, path) {
                 else gapBest = extended;
             }
             if (haystack[j] !== query[i]) continue;
-            const own = MATCH + boundary(path, j) + (j >= base ? IN_BASENAME : 0);
+            const own = MATCH + boundary(path, originalIndices ? originalIndices[j] : j) + (j >= base ? IN_BASENAME : 0);
             if (i === 0) { current[j] = own; continue; }
             const adjacent = j >= 1 ? previous[j - 1] + CONSECUTIVE : -Infinity;
             if (adjacent === -Infinity && gapBest === -Infinity) continue;
@@ -84,7 +93,7 @@ export function match(rawQuery, path) {
     else if (dot > 0 && name.slice(0, dot) === query) score += EXACT_STEM;
     else if (name.startsWith(query)) score += BASENAME_PREFIX;
     else if (positions[0] >= base) score += ALL_IN_BASENAME;
-    return { score, positions };
+    return { score, positions: originalIndices ? [...new Set(positions.map((index) => originalIndices[index]))] : positions };
 }
 
 /**

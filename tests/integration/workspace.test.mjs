@@ -2,9 +2,14 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdir, symlink, unlink, writeFile } from "node:fs/promises";
 import { join, sep } from "node:path";
-import { test } from "vitest";
-import { resolveInitialTarget } from "../../src/backend/workspace.mjs";
+import { test, vi } from "vitest";
+import { MAX_FILES, resolveInitialTarget } from "../../src/backend/workspace.mjs";
 import { Workspace, tempDir, workspaceTree, writeFiles } from "../helpers/fixtures.mjs";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+    const fs = await importOriginal();
+    return { ...fs, readdir: vi.fn(fs.readdir) };
+});
 
 test("workspace listing, first document and path resolution stay inside the root", async () => {
     const { base, rootDir, workspace } = await workspaceTree();
@@ -63,6 +68,39 @@ test("initial target is null for empty, missing, relative or absent working dire
 
 const run = (cwd, ...args) => new Promise((resolve, reject) => {
     execFile("git", args, { cwd }, (error, stdout) => error ? reject(error) : resolve(stdout));
+});
+
+test("empty Git listings do not fall back to ignored files", async () => {
+    const root = await tempDir("vim-files-empty-git-");
+    await writeFiles(root, { ".gitignore": "*\n", "hidden.txt": "ignored\n", "nested/hidden.txt": "ignored\n" });
+    await run(root, "init", "-q");
+    for (const rootPath of [root, join(root, "nested")]) {
+        const workspace = await Workspace.create({ rootPath });
+        assert.deepEqual((await workspace.files()).files, []);
+    }
+});
+
+test("fallback prunes ignored roots before they consume the file limit", async () => {
+    const root = await tempDir("vim-files-prune-");
+    await writeFiles(root, { "artifacts/draft.md": "draft\n", "src/deep/main.js": "source\n" });
+    const workspace = await Workspace.create({ rootPath: root, ignore: ["artifacts"] });
+    // Simulate an oversized ignored directory without creating 50,000 files.
+    const readdir = await import("node:fs/promises");
+    const { readdir: original } = await vi.importActual("node:fs/promises");
+    const listing = vi.spyOn(readdir, "readdir").mockImplementation(async (path, options) => {
+        if (path === join(root, "artifacts")) return Array.from({ length: MAX_FILES + 1 }, (_, index) => ({
+            name: `${index}.md`, isDirectory: () => false, isFile: () => true,
+        }));
+        return original(path, options);
+    });
+    try {
+        const result = await workspace.files();
+        assert.deepEqual(result.files, ["src/deep/main.js"]);
+        assert.equal(result.truncated, false);
+        assert.equal(listing.mock.calls.some(([path]) => path === join(root, "artifacts")), false);
+    } finally {
+        listing.mockRestore();
+    }
 });
 
 test("file search lists git files, respects .gitignore and skips deleted and ignored roots", async () => {

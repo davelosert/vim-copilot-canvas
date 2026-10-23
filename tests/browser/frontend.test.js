@@ -111,6 +111,20 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    it("keeps editor focus when choosing the current file from the explorer finder", async () => {
+        const { app } = await fixture();
+        await showSidebar();
+        $("tree").focus();
+        await key("f");
+        await expect.poll(() => $("finder").open).toBe(true);
+        await key("a.md");
+        await expect.poll(() => $("finder-list").children.length).toBe(1);
+        await key("{Enter}");
+        await expect.poll(() => $("finder").open).toBe(false);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(app.editor.view.hasFocus).toBe(true);
+    });
+
     it("opens files from the fuzzy finder with combobox and listbox semantics", async () => {
         const { app } = await fixture();
         const mac = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform);

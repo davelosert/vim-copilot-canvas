@@ -48,3 +48,11 @@ test("ties prefer recent, then shorter paths", () => {
     expect(rank("x", ["b/x.md", "a/x.md"], { recent: ["b/x.md"] })[0].path).toBe("b/x.md");
     expect(rank("x", ["long/dir/x.md", "a/x.md"])[0].path).toBe("a/x.md");
 });
+
+test("length-changing lowercase conversions retain original highlight offsets", () => {
+    expect(match("txt", "\u0130file.txt")?.positions).toEqual([6, 7, 8]);
+    expect(match("file", "\u0130file.txt")?.positions).toEqual([1, 2, 3, 4]);
+    expect(match("txt", "\u0130dir/file.txt")?.positions).toEqual([10, 11, 12]);
+    expect(match("i", "\u0130file.txt")?.positions).toEqual([0]);
+    expect(rank("file", ["\u0130dir/other-file.txt", "\u0130dir/file.txt"])[0].path).toBe("\u0130dir/file.txt");
+});

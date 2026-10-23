@@ -16,7 +16,6 @@ export function createFinder({ elements: { dialog, input, list, status }, api, o
     let selected = 0;
     let generation = 0;
     let restore = null;
-    let choosing = false;
     let timer;
     let disposed = false;
 
@@ -91,9 +90,8 @@ export function createFinder({ elements: { dialog, input, list, status }, api, o
         const result = results[index];
         if (!result || !listing) return;
         const path = listing.root + listing.separator + result.path.split("/").join(listing.separator);
-        choosing = true;
+        restore = null;
         close();
-        choosing = false;
         onOpen(path);
     };
     const keys = (event) => {
@@ -138,7 +136,7 @@ export function createFinder({ elements: { dialog, input, list, status }, api, o
         timer = undefined;
         const target = restore;
         restore = null;
-        if (!choosing && !disposed && target?.isConnected) target.focus?.();
+        if (!disposed && target?.isConnected) target.focus?.();
     });
 
     return {

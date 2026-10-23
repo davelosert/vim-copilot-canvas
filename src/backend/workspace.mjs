@@ -154,7 +154,7 @@ export class Workspace {
         if (this.filesCache && now - this.filesCache.time < FILES_TTL) return this.filesCache.value;
         const pending = this.filesCache?.pending ?? (async () => {
             let files = await this.gitFiles().catch(() => null);
-            if (!files?.length) files = await this.walkFiles();
+            if (files === null) files = await this.walkFiles();
             files = files.filter((path) => !this.ignore.has(path.split("/")[0]));
             const truncated = files.length > MAX_FILES;
             if (truncated) files = files.slice(0, MAX_FILES);
@@ -192,6 +192,7 @@ export class Workspace {
             try { items = await readdir(join(this.root, prefix), { withFileTypes: true }); }
             catch { continue; }
             for (const item of items) {
+                if (!prefix && this.ignore.has(item.name)) continue;
                 if (skipForFiles.has(item.name)) continue;
                 const relativePath = prefix ? `${prefix}/${item.name}` : item.name;
                 if (item.isDirectory()) queue.push(relativePath);
