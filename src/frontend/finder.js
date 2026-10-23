@@ -96,6 +96,7 @@ export function createFinder({ elements: { dialog, input, list, status }, api, o
         onOpen(path);
     };
     const keys = (event) => {
+        if (event.isComposing) return;
         const control = event.ctrlKey && !event.metaKey && !event.altKey;
         const key = event.key.toLowerCase();
         let action;
@@ -104,7 +105,7 @@ export function createFinder({ elements: { dialog, input, list, status }, api, o
         else if (event.metaKey && !event.ctrlKey && key === "p") action = () => select(selected + 1);
         else if (event.key === "PageDown") action = () => select(Math.min(results.length - 1, selected + 10));
         else if (event.key === "PageUp") action = () => select(Math.max(0, selected - 10));
-        else if (event.key === "Enter" && !event.isComposing) action = () => { if (timer) update(); choose(); };
+        else if (event.key === "Enter") action = () => { if (timer) update(); choose(); };
         else if (event.key === "Escape") action = close;
         if (!action) return;
         event.preventDefault();

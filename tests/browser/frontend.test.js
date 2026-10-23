@@ -112,6 +112,34 @@ async function insert(app, text) {
 }
 
 describe("mounted frontend with real CodeMirror", () => {
+    it("leaves finder shortcuts to the IME during composition", async () => {
+        const { app, api } = await fixture();
+        app.editor.focus();
+        await key(":Files{Enter}");
+        await expect.poll(() => $("finder-list").children.length).toBe(2);
+        const input = $("finder-input");
+        const shortcuts = [
+            { key: "ArrowDown" }, { key: "ArrowUp" },
+            { key: "PageDown" }, { key: "PageUp" },
+            ...["n", "j", "p", "k"].map((key) => ({ key, ctrlKey: true })),
+            { key: "p", metaKey: true }, { key: "Enter" }, { key: "Escape" },
+        ];
+        for (const shortcut of shortcuts) {
+            const event = new KeyboardEvent("keydown", {
+                ...shortcut, isComposing: true, bubbles: true, cancelable: true,
+            });
+            input.dispatchEvent(event);
+            expect(event.defaultPrevented).toBe(false);
+            expect(input.getAttribute("aria-activedescendant")).toBe("finder-option-0");
+            expect($("finder").open).toBe(true);
+        }
+        expect(api.mock.calls.some(([path]) => path === "open")).toBe(false);
+        await key("{ArrowDown}");
+        expect(input.getAttribute("aria-activedescendant")).toBe("finder-option-1");
+        await key("{Escape}");
+        expect($("finder").open).toBe(false);
+    });
+
     it("preserves finder selection when a refresh cancels a pending input debounce", async () => {
         document.body.innerHTML = new DOMParser().parseFromString(markup, "text/html").body.innerHTML;
         const listing = {
