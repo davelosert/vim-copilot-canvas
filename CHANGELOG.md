@@ -1,5 +1,16 @@
 # vim-copilot-canvas
 
+## 1.2.0
+
+### Minor Changes
+
+- 9139514: Add file operations to the file explorer: create, rename, move, copy, and delete files and folders via nvim-tree-style keys, a context menu, toolbar buttons, and drag and drop. Open documents and their drafts follow renames.
+- 5de28e9: Add a Quick Open fuzzy file finder (Cmd+P / Ctrl+P, `:Files`, `<Space>f`, or `f` in the explorer). It respects `.gitignore` and lists recently opened files first.
+
+### Patch Changes
+
+- 4243476: Bundle Monaspace variable fonts and add a persistent editor font picker, with Monaspace Neon as the default.
+
 ## 1.1.0
 
 ### Minor Changes
