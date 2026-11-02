@@ -52,6 +52,23 @@ test("normal/insert modes, background disk writes, live preview, and :w", async 
     assert.deepEqual(errors, []);
 });
 
+test("insert-mode Tab indents Markdown list items, updates the preview, and persists to disk", async () => {
+    const { path, page, errors, mode, state, keys } = await editorPage({ content: "- parent\n- child\n\ntext" });
+    await keys("j", "A", "Tab");
+    await page.keyboard.type(" nested");
+    const indented = "- parent\n    - child nested\n\ntext";
+    await until(async () => assert.equal(await readFile(path, "utf8"), indented));
+    assert.equal(await mode(), "INSERT");
+    assert.equal(await page.locator("#editor .cm-content").evaluate((element) => element === document.activeElement), true);
+    await until(async () => assert.equal(await page.locator("#preview ul ul li").innerText(), "child nested"));
+    await keys("Escape", "G", "A", "Tab");
+    await page.keyboard.type("more");
+    await until(async () => assert.equal((await state()).content, `${indented}\tmore`));
+    await until(async () => assert.equal(await readFile(path, "utf8"), `${indented}\tmore`));
+    assert.equal(await mode(), "INSERT");
+    assert.deepEqual(errors, []);
+});
+
 test("text objects, dot repeat, undo, redo, visual selection, search and macros", async () => {
     // Content as left by the preceding insert scenario in the original sequential suite.
     const { page, errors, keys, mode, state } = await editorPage({ content: `New ${initialContent}` });

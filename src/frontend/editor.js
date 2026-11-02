@@ -2,13 +2,24 @@ import { basicSetup } from "codemirror";
 import { EditorState, Compartment, Transaction } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { LanguageDescription } from "@codemirror/language";
+import { indentUnit, LanguageDescription, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
+import { indentMore, insertTab } from "@codemirror/commands";
 import { vim, getCM } from "@replit/codemirror-vim";
 import { editorTheme, editorThemePalette } from "./theme.js";
 import { isMarkdown } from "./markdown.js";
 import { markdownLinks } from "./markdown-links.js";
 import { changesBetween, normalizeText } from "../shared/change-map.js";
+
+function insertModeTab(view) {
+    if (!getCM(view)?.state.vim?.insertMode || view.state.readOnly) return false;
+    let node = syntaxTree(view.state).resolveInner(view.state.selection.main.head, -1);
+    for (; node; node = node.parent) {
+        if (node.name === "FencedCode" || node.name === "CodeBlock") break;
+        if (node.name === "ListItem") return indentMore(view);
+    }
+    return insertTab(view);
+}
 
 export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor, onMode, onLanguage, onError, systemDark = false }) {
     const theme = new Compartment(), numbering = new Compartment(), language = new Compartment();
@@ -29,7 +40,7 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
         onCursor?.({ line: line.number, column: [...view.state.sliceDoc(line.from, position)].length + 1 });
     };
     const baseLanguage = (name) => isMarkdown(name)
-        ? [markdown({ base: markdownLanguage, codeLanguages: languages }), markdownLinks()] : [];
+        ? [markdown({ base: markdownLanguage, codeLanguages: languages }), markdownLinks(), indentUnit.of("    ")] : [];
     function state(snapshot) {
         return EditorState.create({
             doc: snapshot.content,
@@ -46,7 +57,10 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
                 lineBreaks.of(EditorState.lineSeparator.of(snapshot.content.includes("\r\n") ? "\r\n" : "\n")),
                 theme.of(currentTheme()), editable.of([EditorView.editable.of(isEditable), EditorState.readOnly.of(!isEditable)]),
                 EditorView.contentAttributes.of({ "aria-label": "Text editor", spellcheck: "false" }),
-                keymap.of([{ key: "Mod-s", preventDefault: true, run: () => { onSave(); return true; } }]),
+                keymap.of([
+                    { key: "Tab", run: insertModeTab },
+                    { key: "Mod-s", preventDefault: true, run: () => { onSave(); return true; } },
+                ]),
                 EditorView.updateListener.of((update) => {
                     if (disposed) return;
                     if (update.docChanged && !applying) onEdit();
