@@ -1,8 +1,8 @@
 import { basicSetup } from "codemirror";
-import { EditorState, Compartment, Transaction } from "@codemirror/state";
+import { EditorState, Compartment, Transaction, countColumn } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { indentUnit, LanguageDescription, syntaxTree } from "@codemirror/language";
+import { getIndentUnit, indentString, indentUnit, LanguageDescription, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { indentLess, indentMore, insertTab } from "@codemirror/commands";
 import { vim, getCM } from "@replit/codemirror-vim";
@@ -11,18 +11,57 @@ import { isMarkdown } from "./markdown.js";
 import { markdownLinks } from "./markdown-links.js";
 import { changesBetween, normalizeText } from "../shared/change-map.js";
 
-function insertModeTab(view) {
-    if (!getCM(view)?.state.vim?.insertMode || view.state.readOnly) return false;
-    let node = syntaxTree(view.state).resolveInner(view.state.selection.main.head, -1);
+function markdownListContext(view) {
+    const position = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(position);
+    let node = syntaxTree(view.state).resolve(position, position === line.from ? 1 : -1);
     for (; node; node = node.parent) {
         if (node.name === "FencedCode" || node.name === "CodeBlock") break;
-        if (node.name === "ListItem") return indentMore(view);
+        if (node.name === "ListItem") {
+            let inBlockquote = false;
+            for (let parent = node.parent; parent; parent = parent.parent) {
+                if (parent.name === "Blockquote") inBlockquote = true;
+                if (parent.name === "FencedCode" || parent.name === "CodeBlock") break;
+            }
+            const quotePrefix = inBlockquote ? line.text.match(/^(?:[ \t]{0,3}>[ \t]?)+/)?.[0] : null;
+            return { line, quotePrefix };
+        }
+    }
+    return null;
+}
+
+function insertModeTab(view) {
+    if (!getCM(view)?.state.vim?.insertMode || view.state.readOnly) return false;
+    const context = markdownListContext(view);
+    if (context) {
+        if (context.quotePrefix) {
+            const from = context.line.from + context.quotePrefix.length;
+            view.dispatch({ changes: { from, insert: view.state.facet(indentUnit) }, userEvent: "input.indent" });
+            return true;
+        }
+        return indentMore(view);
     }
     return insertTab(view);
 }
 
 function insertModeShiftTab(view) {
     if (!getCM(view)?.state.vim?.insertMode || view.state.readOnly) return false;
+    const context = markdownListContext(view);
+    if (context?.quotePrefix) {
+        const from = context.line.from + context.quotePrefix.length;
+        const whitespace = context.line.text.slice(context.quotePrefix.length).match(/^[ \t]*/)[0];
+        if (whitespace) {
+            const columns = countColumn(whitespace, view.state.tabSize);
+            const insert = indentString(view.state, Math.max(0, columns - getIndentUnit(view.state)));
+            let keep = 0;
+            while (keep < whitespace.length && keep < insert.length && whitespace[keep] === insert[keep]) keep++;
+            view.dispatch({
+                changes: { from: from + keep, to: from + whitespace.length, insert: insert.slice(keep) },
+                userEvent: "delete.dedent",
+            });
+        }
+        return true;
+    }
     return indentLess(view);
 }
 

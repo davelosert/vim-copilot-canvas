@@ -1,6 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { getCM } from "@replit/codemirror-vim";
+import { LanguageDescription } from "@codemirror/language";
+import { languages } from "@codemirror/language-data";
+import { Transaction } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { undo } from "@codemirror/commands";
 import { createEditor } from "../../src/frontend/editor.js";
 
 let editor;
@@ -9,12 +14,12 @@ afterEach(() => {
     document.body.replaceChildren();
 });
 
-function fixture(content, name = "example.md") {
+function fixture(content, name = "example.md", extensions = []) {
     const parent = document.createElement("div");
     const next = document.createElement("button");
     next.textContent = "Next";
     document.body.append(parent, next);
-    editor = createEditor({ parent, onEdit: vi.fn(), onSave: vi.fn() });
+    editor = createEditor({ parent, extensions, onEdit: vi.fn(), onSave: vi.fn() });
     editor.applyDocument({ content, name }, { kind: "switch" });
     editor.focus();
     return editor;
@@ -45,11 +50,24 @@ it.each([
     expect(editor.readText()).toBe(content);
 });
 
+it("indents a Markdown list when inserting at the start of its line", async () => {
+    const editor = fixture("- item");
+    await userEvent.keyboard("0i{Tab}");
+    expect(editor.readText()).toBe("    - item");
+});
+
 it("inserts Tab literally in fenced code that looks like a list", async () => {
     const editor = fixture("```\n- code\n```");
     await userEvent.keyboard("jA{Tab}");
     expect(editor.readText()).toBe("```\n- code\t\n```");
     expect(editor.view.hasFocus).toBe(true);
+});
+
+it("inserts Tab literally in Markdown-tagged fenced code that looks like a list", async () => {
+    await LanguageDescription.matchLanguageName(languages, "markdown").load();
+    const editor = fixture("```markdown\n- code\n```");
+    await userEvent.keyboard("jA{Tab}");
+    expect(editor.readText()).toBe("```markdown\n- code\t\n```");
 });
 
 it("inserts Tab literally in a code block nested inside a list", async () => {
@@ -70,6 +88,61 @@ it("keeps the cursor in the list text after indenting", async () => {
     const editor = fixture("- parent\n- child");
     await userEvent.keyboard("j0wi{Tab}new ");
     expect(editor.readText()).toBe("- parent\n    - new child");
+});
+
+it("indents quoted list items after the blockquote prefix and outdents them with Shift+Tab", async () => {
+    const editor = fixture("> - parent\n> - child");
+    await userEvent.keyboard("jA{Tab}");
+    expect(editor.readText()).toBe("> - parent\n>     - child");
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(editor.readText()).toBe("> - parent\n> - child");
+});
+
+it.each(["> ", "> > ", ">> ", "  > "])("preserves the quote prefix and cursor through repeated indentation: %s", async (prefix) => {
+    const content = `${prefix}- parent\n${prefix}- child`;
+    const editor = fixture(content);
+    await userEvent.keyboard("jA{Tab}{Tab}");
+    expect(editor.readText()).toBe(`${prefix}- parent\n${prefix}        - child`);
+    await userEvent.keyboard("{Shift>}{Tab}{Tab}{Tab}{/Shift}");
+    expect(editor.readText()).toBe(content);
+    expect(editor.view.state.selection.main.head).toBe(content.length);
+    expect(editor.view.hasFocus).toBe(true);
+    expect(getCM(editor.view).state.vim.insertMode).toBe(true);
+    await userEvent.keyboard(" text");
+    expect(editor.readText()).toBe(`${content} text`);
+});
+
+it.each([
+    ["      ", "  "],
+    ["\t  ", "  "],
+    ["  \t  ", "  "],
+    ["\t", ""],
+    ["", ""],
+])("removes one indentation unit after a quote prefix: %j", async (whitespace, expected) => {
+    const editor = fixture(`> - parent\n> ${whitespace}- child`);
+    await userEvent.keyboard("jA{Shift>}{Tab}{/Shift}");
+    const result = `> - parent\n> ${expected}- child`;
+    expect(editor.readText()).toBe(result);
+    expect(editor.view.state.selection.main.head).toBe(result.length);
+    expect(editor.view.hasFocus).toBe(true);
+    expect(getCM(editor.view).state.vim.insertMode).toBe(true);
+});
+
+it("annotates quoted-list indentation and dedentation for undo grouping", async () => {
+    const events = [];
+    const content = "> - parent\n> - child";
+    const editor = fixture(content, "example.md", [EditorView.updateListener.of((update) => {
+        for (const transaction of update.transactions) {
+            if (transaction.docChanged) events.push(transaction.annotation(Transaction.userEvent));
+        }
+    })]);
+    await userEvent.keyboard("jA{Tab}{Tab}{Shift>}{Tab}{Tab}{/Shift}");
+    expect(editor.readText()).toBe(content);
+    expect(events).toEqual(["input.indent", "input.indent", "delete.dedent", "delete.dedent"]);
+    expect(undo(editor.view)).toBe(true);
+    expect(editor.readText()).toBe("> - parent\n>     - child");
+    while (undo(editor.view)) expect(editor.readText()).toMatch(/^> - parent\n>  *- child$/);
+    expect(editor.readText()).toBe(content);
 });
 
 it.each([
