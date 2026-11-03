@@ -56,6 +56,13 @@ it("indents a Markdown list when inserting at the start of its line", async () =
     expect(editor.readText()).toBe("    - item");
 });
 
+it("indents a quoted Markdown list when inserting at the start of its line", async () => {
+    const editor = fixture("> - item");
+    await userEvent.keyboard("0i{Tab}");
+    expect(editor.readText()).toBe(">     - item");
+    expect(editor.view.state.selection.main.head).toBe(">     ".length);
+});
+
 it("inserts Tab literally in fenced code that looks like a list", async () => {
     const editor = fixture("```\n- code\n```");
     await userEvent.keyboard("jA{Tab}");
@@ -96,6 +103,19 @@ it("indents quoted list items after the blockquote prefix and outdents them with
     expect(editor.readText()).toBe("> - parent\n>     - child");
     await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
     expect(editor.readText()).toBe("> - parent\n> - child");
+});
+
+it("indents and outdents a blockquote nested inside a list without changing its container indentation", async () => {
+    const content = "- outer\n\n    > - parent\n    > - child";
+    const editor = fixture(content);
+    editor.jumpTo(4);
+    await userEvent.keyboard("i{Shift>}{Tab}{/Shift}{Escape}");
+    expect(editor.readText()).toBe(content);
+    editor.jumpTo(4);
+    await userEvent.keyboard("i{Tab}");
+    expect(editor.readText()).toBe("- outer\n\n    > - parent\n    >     - child");
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(editor.readText()).toBe(content);
 });
 
 it.each(["> ", "> > ", ">> ", "  > "])("preserves the quote prefix and cursor through repeated indentation: %s", async (prefix) => {

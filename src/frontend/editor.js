@@ -14,7 +14,8 @@ import { changesBetween, normalizeText } from "../shared/change-map.js";
 function markdownListContext(view) {
     const position = view.state.selection.main.head;
     const line = view.state.doc.lineAt(position);
-    let node = syntaxTree(view.state).resolve(position, position === line.from ? 1 : -1);
+    const contextPosition = line.from === line.to ? position : line.to;
+    let node = syntaxTree(view.state).resolve(contextPosition, -1);
     for (; node; node = node.parent) {
         if (node.name === "FencedCode" || node.name === "CodeBlock") break;
         if (node.name === "ListItem") {
@@ -23,7 +24,7 @@ function markdownListContext(view) {
                 if (parent.name === "Blockquote") inBlockquote = true;
                 if (parent.name === "FencedCode" || parent.name === "CodeBlock") break;
             }
-            const quotePrefix = inBlockquote ? line.text.match(/^(?:[ \t]{0,3}>[ \t]?)+/)?.[0] : null;
+            const quotePrefix = inBlockquote ? line.text.match(/^(?:[ \t]*>[ \t]?)+/)?.[0] : null;
             return { line, quotePrefix };
         }
     }
@@ -36,7 +37,12 @@ function insertModeTab(view) {
     if (context) {
         if (context.quotePrefix) {
             const from = context.line.from + context.quotePrefix.length;
-            view.dispatch({ changes: { from, insert: view.state.facet(indentUnit) }, userEvent: "input.indent" });
+            const insert = view.state.facet(indentUnit);
+            view.dispatch({
+                changes: { from, insert },
+                selection: view.state.selection.main.head === context.line.from ? { anchor: from + insert.length } : undefined,
+                userEvent: "input.indent",
+            });
             return true;
         }
         return indentMore(view);
