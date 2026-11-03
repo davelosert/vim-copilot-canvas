@@ -1,14 +1,75 @@
 import { basicSetup } from "codemirror";
-import { EditorState, Compartment, Transaction } from "@codemirror/state";
+import { EditorState, Compartment, Transaction, countColumn } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { LanguageDescription } from "@codemirror/language";
+import { getIndentUnit, indentString, indentUnit, LanguageDescription, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
+import { indentLess, indentMore, insertTab } from "@codemirror/commands";
 import { vim, getCM } from "@replit/codemirror-vim";
 import { editorTheme, editorThemePalette } from "./theme.js";
 import { isMarkdown } from "./markdown.js";
 import { markdownLinks } from "./markdown-links.js";
 import { changesBetween, normalizeText } from "../shared/change-map.js";
+
+function markdownListContext(view) {
+    const position = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(position);
+    const contextPosition = line.from === line.to ? position : line.to;
+    let node = syntaxTree(view.state).resolve(contextPosition, -1);
+    for (; node; node = node.parent) {
+        if (node.name === "FencedCode" || node.name === "CodeBlock") break;
+        if (node.name === "ListItem") {
+            let inBlockquote = false;
+            for (let parent = node.parent; parent; parent = parent.parent) {
+                if (parent.name === "Blockquote") inBlockquote = true;
+                if (parent.name === "FencedCode" || parent.name === "CodeBlock") break;
+            }
+            const quotePrefix = inBlockquote ? line.text.match(/^(?:[ \t]*>[ \t]?)+/)?.[0] : null;
+            return { line, quotePrefix };
+        }
+    }
+    return null;
+}
+
+function insertModeTab(view) {
+    if (!getCM(view)?.state.vim?.insertMode || view.state.readOnly) return false;
+    const context = markdownListContext(view);
+    if (context) {
+        if (context.quotePrefix) {
+            const from = context.line.from + context.quotePrefix.length;
+            const insert = view.state.facet(indentUnit);
+            view.dispatch({
+                changes: { from, insert },
+                selection: view.state.selection.main.head === context.line.from ? { anchor: from + insert.length } : undefined,
+                userEvent: "input.indent",
+            });
+            return true;
+        }
+        return indentMore(view);
+    }
+    return insertTab(view);
+}
+
+function insertModeShiftTab(view) {
+    if (!getCM(view)?.state.vim?.insertMode || view.state.readOnly) return false;
+    const context = markdownListContext(view);
+    if (context?.quotePrefix) {
+        const from = context.line.from + context.quotePrefix.length;
+        const whitespace = context.line.text.slice(context.quotePrefix.length).match(/^[ \t]*/)[0];
+        if (whitespace) {
+            const columns = countColumn(whitespace, view.state.tabSize);
+            const insert = indentString(view.state, Math.max(0, columns - getIndentUnit(view.state)));
+            let keep = 0;
+            while (keep < whitespace.length && keep < insert.length && whitespace[keep] === insert[keep]) keep++;
+            view.dispatch({
+                changes: { from: from + keep, to: from + whitespace.length, insert: insert.slice(keep) },
+                userEvent: "delete.dedent",
+            });
+        }
+        return true;
+    }
+    return indentLess(view);
+}
 
 export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor, onMode, onLanguage, onError, systemDark = false }) {
     const theme = new Compartment(), numbering = new Compartment(), language = new Compartment();
@@ -29,7 +90,7 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
         onCursor?.({ line: line.number, column: [...view.state.sliceDoc(line.from, position)].length + 1 });
     };
     const baseLanguage = (name) => isMarkdown(name)
-        ? [markdown({ base: markdownLanguage, codeLanguages: languages }), markdownLinks()] : [];
+        ? [markdown({ base: markdownLanguage, codeLanguages: languages }), markdownLinks(), indentUnit.of("    ")] : [];
     function state(snapshot) {
         return EditorState.create({
             doc: snapshot.content,
@@ -46,7 +107,10 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
                 lineBreaks.of(EditorState.lineSeparator.of(snapshot.content.includes("\r\n") ? "\r\n" : "\n")),
                 theme.of(currentTheme()), editable.of([EditorView.editable.of(isEditable), EditorState.readOnly.of(!isEditable)]),
                 EditorView.contentAttributes.of({ "aria-label": "Text editor", spellcheck: "false" }),
-                keymap.of([{ key: "Mod-s", preventDefault: true, run: () => { onSave(); return true; } }]),
+                keymap.of([
+                    { key: "Tab", run: insertModeTab, shift: insertModeShiftTab },
+                    { key: "Mod-s", preventDefault: true, run: () => { onSave(); return true; } },
+                ]),
                 EditorView.updateListener.of((update) => {
                     if (disposed) return;
                     if (update.docChanged && !applying) onEdit();
