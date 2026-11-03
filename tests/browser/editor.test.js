@@ -72,6 +72,46 @@ it("keeps the cursor in the list text after indenting", async () => {
     expect(editor.readText()).toBe("- parent\n    - new child");
 });
 
+it.each([
+    ["- parent\n    - child", "- parent\n- child"],
+    ["* parent\n    * child", "* parent\n* child"],
+    ["1. parent\n    2. child", "1. parent\n2. child"],
+    ["- parent\n    - [ ] child", "- parent\n- [ ] child"],
+    ["- parent\n        - child", "- parent\n    - child"],
+    ["- parent\n  - child", "- parent\n- child"],
+    ["- parent\n- child", "- parent\n- child"],
+])("outdents the current Markdown list line with Shift+Tab: %s", async (content, expected) => {
+    const editor = fixture(content);
+    await userEvent.keyboard("jA{Shift>}{Tab}{/Shift}");
+    expect(editor.readText()).toBe(expected);
+    expect(editor.view.hasFocus).toBe(true);
+    expect(getCM(editor.view).state.vim.insertMode).toBe(true);
+    if (content !== expected) {
+        await userEvent.keyboard("{Escape}u");
+        expect(editor.readText()).toBe(content);
+    }
+});
+
+it("reverses Tab indentation with Shift+Tab and preserves the cursor", async () => {
+    const editor = fixture("- parent\n- child");
+    await userEvent.keyboard("j0wi{Tab}{Shift>}{Tab}{/Shift}new ");
+    expect(editor.readText()).toBe("- parent\n- new child");
+    expect(editor.view.hasFocus).toBe(true);
+});
+
+it.each([
+    ["example.md", "    text", "text"],
+    ["example.md", "\ttext", "text"],
+    ["example.txt", "  text", "text"],
+    ["example.txt", "text", "text"],
+])("outdents ordinary text without losing focus: %s, %s", async (name, content, expected) => {
+    const editor = fixture(content, name);
+    await userEvent.keyboard("A{Shift>}{Tab}{/Shift}");
+    expect(editor.readText()).toBe(expected);
+    expect(editor.view.hasFocus).toBe(true);
+    expect(getCM(editor.view).state.vim.insertMode).toBe(true);
+});
+
 it("does not interpret list-like plain text as Markdown after switching files", async () => {
     const editor = fixture("- markdown");
     editor.applyDocument({ content: "- text", name: "example.txt" }, { kind: "switch" });
@@ -85,12 +125,16 @@ it.each(["- item", "text"])("does not edit a read-only document with Tab: %s", a
     await userEvent.keyboard("A");
     editor.setReadOnly(true);
     await userEvent.keyboard("{Tab}");
+    editor.focus();
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
     expect(editor.readText()).toBe(content);
 });
 
 it("does not insert or indent with Tab in normal mode", async () => {
     const editor = fixture("- item");
     await userEvent.keyboard("{Tab}");
+    editor.focus();
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
     expect(editor.readText()).toBe("- item");
     expect(getCM(editor.view).state.vim.insertMode).toBe(false);
 });

@@ -61,10 +61,16 @@ test("insert-mode Tab indents Markdown list items, updates the preview, and pers
     assert.equal(await mode(), "INSERT");
     assert.equal(await page.locator("#editor .cm-content").evaluate((element) => element === document.activeElement), true);
     await until(async () => assert.equal(await page.locator("#preview ul ul li").innerText(), "child nested"));
+    await keys("Shift+Tab");
+    const outdented = "- parent\n- child nested\n\ntext";
+    await until(async () => assert.equal(await readFile(path, "utf8"), outdented));
+    await until(async () => assert.equal(await page.locator("#preview ul ul").count(), 0));
+    assert.equal(await mode(), "INSERT");
+    assert.equal(await page.locator("#editor .cm-content").evaluate((element) => element === document.activeElement), true);
     await keys("Escape", "G", "A", "Tab");
     await page.keyboard.type("more");
-    await until(async () => assert.equal((await state()).content, `${indented}\tmore`));
-    await until(async () => assert.equal(await readFile(path, "utf8"), `${indented}\tmore`));
+    await until(async () => assert.equal((await state()).content, `${outdented}\tmore`));
+    await until(async () => assert.equal(await readFile(path, "utf8"), `${outdented}\tmore`));
     assert.equal(await mode(), "INSERT");
     assert.deepEqual(errors, []);
 });

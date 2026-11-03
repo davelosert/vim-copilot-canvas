@@ -4,7 +4,7 @@ import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { indentUnit, LanguageDescription, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
-import { indentMore, insertTab } from "@codemirror/commands";
+import { indentLess, indentMore, insertTab } from "@codemirror/commands";
 import { vim, getCM } from "@replit/codemirror-vim";
 import { editorTheme, editorThemePalette } from "./theme.js";
 import { isMarkdown } from "./markdown.js";
@@ -19,6 +19,11 @@ function insertModeTab(view) {
         if (node.name === "ListItem") return indentMore(view);
     }
     return insertTab(view);
+}
+
+function insertModeShiftTab(view) {
+    if (!getCM(view)?.state.vim?.insertMode || view.state.readOnly) return false;
+    return indentLess(view);
 }
 
 export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor, onMode, onLanguage, onError, systemDark = false }) {
@@ -58,7 +63,7 @@ export function createEditor({ parent, extensions = [], onEdit, onSave, onCursor
                 theme.of(currentTheme()), editable.of([EditorView.editable.of(isEditable), EditorState.readOnly.of(!isEditable)]),
                 EditorView.contentAttributes.of({ "aria-label": "Text editor", spellcheck: "false" }),
                 keymap.of([
-                    { key: "Tab", run: insertModeTab },
+                    { key: "Tab", run: insertModeTab, shift: insertModeShiftTab },
                     { key: "Mod-s", preventDefault: true, run: () => { onSave(); return true; } },
                 ]),
                 EditorView.updateListener.of((update) => {
