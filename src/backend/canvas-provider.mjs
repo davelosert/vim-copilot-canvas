@@ -93,7 +93,7 @@ export function createVimCanvas({ createCanvas, CanvasError, store, panels,
     return createCanvas({
         id: canvasId,
         displayName,
-        description: "Edit UTF-8 text files with Vim keybindings, syntax highlighting, a file explorer, conflict-aware saves, and a live preview for Markdown.",
+        description: "Edit UTF-8 and BOM-marked UTF-16 text files with Vim keybindings, syntax highlighting, a file explorer, conflict-aware saves, and a live preview for Markdown.",
         inputSchema: {
             type: "object",
             properties: {

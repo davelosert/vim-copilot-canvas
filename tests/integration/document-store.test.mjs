@@ -185,6 +185,21 @@ test("UTF-8, CRLF and literal trailing newlines are retained; file modes are ret
     if (process.platform !== "win32") assert.equal((await stat(path)).mode & 0o777, 0o640);
 });
 
+test.each([
+    ["UTF-16LE", [0xff, 0xfe, 0x23, 0, 0x20, 0, 0x43, 0, 0xe9, 0, 0x0a, 0]],
+    ["UTF-16BE", [0xfe, 0xff, 0, 0x23, 0, 0x20, 0, 0x43, 0, 0xe9, 0, 0x0a]],
+])("BOM-marked %s files open and save as UTF-8", async (_encoding, bytes) => {
+    const { path, artifacts } = await fixture();
+    await writeFile(path, Buffer.from(bytes));
+
+    const store = new DocumentStore(artifacts);
+    const document = await store.open(path);
+    assert.equal(document.content, "# Cé\n");
+    const draft = await store.update(document, "# Grüße\n", document.revision);
+    await store.save(document, draft.revision);
+    assert.equal(await readFile(path, "utf8"), "# Grüße\n");
+});
+
 test("unsupported files and content are rejected explicitly", async () => {
     const { path, store, document, root } = await fixture();
     await assert.rejects(store.open("relative.md"), { code: "absolute_path_required" });
