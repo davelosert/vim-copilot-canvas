@@ -18,7 +18,7 @@ function decodeText(bytes) {
         }
         return new TextDecoder("utf-16le", { fatal: true, ignoreBOM: true }).decode(littleEndian);
     }
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
 }
 
 export async function atomicWrite(path, content, mode = 0o600) {

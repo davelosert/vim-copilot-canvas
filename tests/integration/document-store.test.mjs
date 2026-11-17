@@ -210,6 +210,21 @@ test.each([
     const store = new DocumentStore(artifacts);
     const document = await store.open(path);
     assert.equal(document.content, "\uFEFF#");
+
+    const updated = await store.update(document, "\uFEFF# saved", document.revision);
+    const saved = await store.save(document, updated.revision);
+    assert.equal(saved.content, "\uFEFF# saved");
+    assert.equal(saved.conflict, false);
+
+    const snapshot = await store.snapshot(document);
+    assert.equal(snapshot.content, "\uFEFF# saved");
+    assert.equal(snapshot.conflict, false);
+
+    const reopenedStore = new DocumentStore(artifacts);
+    const reopened = await reopenedStore.open(path);
+    const reopenedSnapshot = await reopenedStore.snapshot(reopened);
+    assert.equal(reopenedSnapshot.content, "\uFEFF# saved");
+    assert.equal(reopenedSnapshot.conflict, false);
 });
 
 test("unsupported files and content are rejected explicitly", async () => {
