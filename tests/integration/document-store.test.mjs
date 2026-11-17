@@ -200,6 +200,18 @@ test.each([
     assert.equal(await readFile(path, "utf8"), "# Grüße\n");
 });
 
+test.each([
+    ["UTF-16LE", [0xff, 0xfe, 0xff, 0xfe, 0x23, 0]],
+    ["UTF-16BE", [0xfe, 0xff, 0xfe, 0xff, 0, 0x23]],
+])("BOM-marked %s preserves a leading U+FEFF in content", async (_encoding, bytes) => {
+    const { path, artifacts } = await fixture();
+    await writeFile(path, Buffer.from(bytes));
+
+    const store = new DocumentStore(artifacts);
+    const document = await store.open(path);
+    assert.equal(document.content, "\uFEFF#");
+});
+
 test("unsupported files and content are rejected explicitly", async () => {
     const { path, store, document, root } = await fixture();
     await assert.rejects(store.open("relative.md"), { code: "absolute_path_required" });

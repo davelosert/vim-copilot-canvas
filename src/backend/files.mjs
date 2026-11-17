@@ -7,7 +7,7 @@ export const MAX_BYTES = 2 * 1024 * 1024;
 
 function decodeText(bytes) {
     if (bytes[0] === 0xff && bytes[1] === 0xfe) {
-        return new TextDecoder("utf-16le", { fatal: true }).decode(bytes.subarray(2));
+        return new TextDecoder("utf-16le", { fatal: true, ignoreBOM: true }).decode(bytes.subarray(2));
     }
     if (bytes[0] === 0xfe && bytes[1] === 0xff) {
         const content = bytes.subarray(2);
@@ -16,7 +16,7 @@ function decodeText(bytes) {
         for (let index = 0; index < littleEndian.length; index += 2) {
             [littleEndian[index], littleEndian[index + 1]] = [littleEndian[index + 1], littleEndian[index]];
         }
-        return new TextDecoder("utf-16le", { fatal: true }).decode(littleEndian);
+        return new TextDecoder("utf-16le", { fatal: true, ignoreBOM: true }).decode(littleEndian);
     }
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }

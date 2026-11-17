@@ -22,10 +22,10 @@ test("workspace listing, first document and path resolution stay inside the root
     assert.equal(await workspace.resolve("deep/child.md"), join(rootDir, "deep", "child.md"));
 });
 
-test("initial selection skips binary, oversized and non-UTF-8 files", async () => {
+test("initial selection skips binary, oversized and invalidly encoded files", async () => {
     const root = await tempDir("vim-markdown-formats-");
     await writeFile(join(root, "a.bin"), Buffer.from([0, 1, 2]));
-    await writeFile(join(root, "b.bin"), Buffer.from([0xff, 0xfe]));
+    await writeFile(join(root, "b.bin"), Buffer.from([0xff, 0xfe, 0x61]));
     await writeFile(join(root, "c.log"), "a".repeat(2 * 1024 * 1024 + 1));
     assert.equal(await resolveInitialTarget({ workingDirectory: root }), null);
     await mkdir(join(root, "src"));
