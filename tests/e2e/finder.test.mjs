@@ -58,6 +58,7 @@ test("fuzzy finder opens files from every entry point, hides ignored files and l
     await page.keyboard.press("Escape");
     await until(async () => assert.equal(await finder.evaluate((node) => node.open), false));
 
+    await until(async () => assert.equal(await page.locator(".cm-content").evaluate((node) => node === document.activeElement), true));
     await page.locator("#tree").focus();
     await page.keyboard.press("f");
     await until(async () => assert.equal(await finder.evaluate((node) => node.open), true));
