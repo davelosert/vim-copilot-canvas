@@ -1,5 +1,12 @@
 # vim-copilot-canvas
 
+## 1.2.1
+
+### Patch Changes
+
+- 25a53aa: Support BOM-marked UTF-16LE/BE files and preserve leading U+FEFF characters when saving as UTF-8.
+- f852442: Keep Tab inside the editor in insert mode: insert a tab character in ordinary text and indent Markdown list lines by four spaces. Shift+Tab outdents the current line by one indentation level without leaving the editor.
+
 ## 1.2.0
 
 ### Minor Changes
